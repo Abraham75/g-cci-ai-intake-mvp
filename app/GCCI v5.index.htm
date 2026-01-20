@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>G-CCI Platform: Lawyer-Centric Intelligence Console</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        /* --- DESIGN SYSTEM --- */
+        :root {
+            --color-primary: #1E3F66; /* Deep Navy Blue (Authority) */
+            --color-accent: #1E8449;  /* Law Firm Green (Success) */
+            --color-background: #F4F7F6;
+            --color-text-dark: #333333;
+            --color-text-light: #666666;
+            --color-alert: #D32F2F;   /* Red for Critical/Interactive */
+            --color-card-bg: #FFFFFF;
+            --shadow-card: 0 2px 8px rgba(0,0,0,0.08);
+            --shadow-hover: 0 8px 25px rgba(0,0,0,0.15);
+            --border-interactive: 1px solid var(--color-alert); /* Red Outline Requirement */
+            --font-main: 'Roboto', sans-serif;
+        }
+
+        /* --- BASE STYLES --- */
+        body { font-family: var(--font-main); background-color: var(--color-background); color: var(--color-text-dark); margin: 0; padding: 0; font-size: 14px; line-height: 1.5; overflow-x: hidden; }
+        * { box-sizing: border-box; }
+
+        /* --- HEADER --- */
+        header { 
+            background-color: var(--color-primary); color: white; padding: 15px 25px; 
+            display: flex; justify-content: space-between; align-items: center; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2); position: sticky; top: 0; z-index: 1000;
+        }
+        header h1 { font-size: 1.6em; font-weight: 700; margin: 0; letter-spacing: 0.5px; }
+        header h1 span { font-weight: 300; opacity: 0.9; font-size: 0.9em; margin-left: 10px; }
+        .brand-tag { font-size: 0.85em; background: rgba(255,255,255,0.15); padding: 5px 12px; border-radius: 4px; font-weight: 500; }
+
+        /* --- MAIN LAYOUT (3-Column Grid) --- */
+        main { 
+            display: grid; 
+            grid-template-columns: 320px 1fr 360px; 
+            gap: 20px; 
+            padding: 20px; 
+            max-width: 1800px; 
+            margin: 0 auto; 
+            height: calc(100vh - 70px);
+        }
+
+        /* --- CARDS & CONTAINERS --- */
+        .card { 
+            background: var(--color-card-bg); border-radius: 8px; box-shadow: var(--shadow-card); 
+            padding: 20px; display: flex; flex-direction: column; overflow: hidden;
+        }
+        .card-header { 
+            color: var(--color-primary); font-size: 1.1em; font-weight: 700; 
+            border-bottom: 2px solid #F0F2F5; padding-bottom: 10px; margin-bottom: 15px; 
+            text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px;
+        }
+
+        /* --- LEFT COLUMN: NAVIGATOR --- */
+        #navigator { overflow-y: auto; }
+        .phase-block { margin-bottom: 25px; }
+        .phase-title { font-size: 0.9em; font-weight: 700; color: var(--color-text-light); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+        
+        .nav-btn {
+            width: 100%; text-align: left; padding: 12px 15px; margin-bottom: 8px;
+            background: white; border: var(--border-interactive); border-left: 4px solid var(--color-alert);
+            border-radius: 4px; cursor: pointer; transition: all 0.2s; font-weight: 500; color: var(--color-text-dark);
+            display: flex; align-items: center; gap: 12px; position: relative;
+        }
+        .nav-btn:hover { background: #FFF5F5; transform: translateX(4px); box-shadow: 0 2px 8px rgba(211,47,47,0.15); }
+        .nav-btn i { color: var(--color-primary); width: 20px; text-align: center; }
+        .nav-btn::after { content: 'LIVE'; position: absolute; right: 10px; top: 12px; font-size: 0.6em; background: #E8F5E9; color: var(--color-accent); padding: 2px 6px; border-radius: 4px; opacity: 0; transition: opacity 0.2s; }
+        .nav-btn:hover::after { opacity: 1; }
+
+        /* --- CENTER COLUMN: DASHBOARD --- */
+        #dashboard { display: grid; grid-template-rows: auto auto 1fr; gap: 20px; overflow-y: auto; }
+        
+        /* Tab Navigation */
+        .tabs { display: flex; gap: 10px; margin-bottom: 5px; }
+        .tab-btn { 
+            padding: 10px 20px; background: white; border: 1px solid #ddd; border-bottom: none; 
+            border-radius: 8px 8px 0 0; cursor: pointer; font-weight: 600; color: var(--color-text-light); flex: 1;
+        }
+        .tab-btn.active { background: var(--color-primary); color: white; border-color: var(--color-primary); }
+
+        /* KPI Tiles */
+        .kpi-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; }
+        .kpi-tile { 
+            background: white; padding: 20px; border-radius: 8px; border: var(--border-interactive); 
+            text-align: center; cursor: help; position: relative; overflow: hidden;
+            transition: transform 0.2s;
+        }
+        .kpi-tile:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); }
+        .kpi-value { font-size: 2.5em; font-weight: 800; color: var(--color-accent); margin: 5px 0; }
+        .kpi-label { font-size: 0.85em; font-weight: 600; color: var(--color-text-light); text-transform: uppercase; }
+        
+        /* Triage List */
+        .lead-list { display: flex; flex-direction: column; gap: 10px; }
+        .lead-card { 
+            background: white; border-left: 5px solid var(--color-accent); border-radius: 4px; 
+            padding: 15px; display: grid; grid-template-columns: 60px 1fr auto; gap: 15px; align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); animation: slideDown 0.3s ease-out;
+        }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .lead-score { font-size: 1.8em; font-weight: 800; color: var(--color-accent); text-align: center; line-height: 1; }
+        .lead-score small { display: block; font-size: 0.4em; color: #999; font-weight: 400; margin-top: 3px; }
+        .lead-details h4 { margin: 0; color: var(--color-primary); font-size: 1.1em; }
+        .lead-details p { margin: 3px 0 0; font-size: 0.9em; color: var(--color-text-light); }
+        .lead-action button { 
+            background: var(--color-primary); color: white; border: none; padding: 8px 16px; 
+            border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 0.85em;
+        }
+        
+        /* Prospective Client Radar list styling */
+        .prospect-row {
+            display: grid;
+            grid-template-columns: 80px 1fr 90px 80px;
+            gap: 10px;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9em;
+            cursor: pointer;
+        }
+        .prospect-score {
+            font-weight: 800;
+            color: var(--color-accent);
+            font-size: 1.2em;
+        }
+        .prospect-score.low {
+            color: #9E9E9E;
+        }
+        .prospect-score.mid {
+            color: #FB8C00;
+        }
+        .prospect-source {
+            font-size: 0.8em;
+            color: var(--color-text-light);
+        }
+        .prospect-persona {
+            font-size: 0.8em;
+            padding: 3px 6px;
+            border-radius: 10px;
+            background: #E8F5E9;
+            color: var(--color-accent);
+            text-align: center;
+        }
+
+        /* Operations/Predictive Tab */
+        .ops-grid { display: none; grid-template-columns: 2fr 1fr; gap: 15px; }
+        .ops-grid.active { display: grid; }
+        .map-mock { 
+            background: #2C3E50; height: 300px; border-radius: 6px; display: flex; 
+            align-items: center; justify-content: center; flex-direction: column; color: white;
+            position: relative;
+        }
+        .alert-feed { list-style: none; padding: 0; margin: 0; }
+        .alert-item { padding: 10px; border-bottom: 1px solid #eee; font-size: 0.9em; }
+        .alert-crit { color: var(--color-alert); font-weight: 700; }
+
+        /* --- RIGHT COLUMN: CONTROLS --- */
+        #controls { display: flex; flex-direction: column; gap: 20px; }
+        .control-panel { background: #E3F2FD; padding: 15px; border-radius: 6px; border: 1px solid #BBDEFB; }
+        .simulation-btn {
+            width: 100%; padding: 15px; background: var(--color-alert); color: white; 
+            border: 2px solid #B71C1C; border-radius: 6px; font-weight: 700; font-size: 1em;
+            cursor: pointer; text-transform: uppercase; letter-spacing: 1px; margin-top: 10px;
+            transition: background 0.2s;
+        }
+        .simulation-btn:hover { background: #B71C1C; }
+        
+        #log-window { 
+            flex-grow: 1; background: #263238; color: #81C784; padding: 15px; 
+            border-radius: 6px; font-family: 'Courier New', monospace; font-size: 0.85em; 
+            overflow-y: auto; max-height: 400px; border: 2px solid #455A64;
+        }
+        .log-entry { margin-bottom: 6px; border-bottom: 1px solid #37474F; padding-bottom: 2px; }
+        .log-time { color: #90A4AE; margin-right: 8px; }
+
+        /* --- OVERLAYS: TOOLTIPS & MODALS --- */
+        #tooltip { 
+            position: absolute; background: white; border: 2px solid var(--color-primary); 
+            border-radius: 6px; padding: 15px; width: 280px; box-shadow: var(--shadow-hover);
+            pointer-events: none; opacity: 0; transition: opacity 0.2s; z-index: 9999;
+        }
+        #tooltip.visible { opacity: 1; }
+        .tooltip-header { font-weight: 700; color: var(--color-primary); border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 5px; }
+        
+        #modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(30,63,102, 0.8); z-index: 10000; display: none;
+            align-items: center; justify-content: center;
+        }
+        #modal-card {
+            background: white; width: 600px; max-width: 90%; max-height: 85vh; 
+            border-radius: 8px; padding: 0; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            display: flex; flex-direction: column;
+        }
+        .modal-header { background: var(--color-primary); color: white; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .modal-body { padding: 25px; overflow-y: auto; }
+        .data-row { display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 12px 0; }
+        .data-label { font-weight: 600; color: var(--color-text-light); }
+        .data-val { font-weight: 700; color: var(--color-text-dark); text-align: right; }
+        .insight-box { background: #E8F5E9; border-left: 4px solid var(--color-accent); padding: 15px; margin-top: 20px; border-radius: 4px; }
+        .close-modal { background: none; border: none; color: white; font-size: 1.5em; cursor: pointer; }
+
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>G-CCI Platform <span>Lawyer-Centric Intelligence Console</span></h1>
+    </div>
+    <div class="brand-tag"><i class="fas fa-gavel"></i> The Graham Firm | Over $100 Million Recovered</div>
+</header>
+
+<main>
+    <section id="navigator" class="card">
+        <div class="card-header"><i class="fas fa-sitemap"></i> AI Workflow Navigator</div>
+        
+        <div class="phase-block">
+            <div class="phase-title"><i class="fas fa-hand-point-right"></i> PHASE 1: Acquisition & Intake</div>
+            <button class="nav-btn" onclick="openModal('ad_spend')" data-tooltip="ad_roi">
+                <i class="fas fa-bullhorn"></i> Ad Spend ROI
+            </button>
+            <button class="nav-btn" onclick="openModal('initial_vetting')" data-tooltip="vetting">
+                <i class="fas fa-headset"></i> Initial Vetting (Vapi)
+            </button>
+            <button class="nav-btn" onclick="openModal('case_confidence')" data-tooltip="confidence">
+                <i class="fas fa-chart-line"></i> Predicted Confidence
+            </button>
+            <button class="nav-btn" onclick="openModal('handoff')" data-tooltip="handoff">
+                <i class="fas fa-user-check"></i> Handoff & MyCase
+            </button>
+        </div>
+
+        <div class="phase-block">
+            <div class="phase-title"><i class="fas fa-balance-scale"></i> PHASE 2: Litigation</div>
+            <button class="nav-btn" onclick="openModal('lawyer_match')" data-tooltip="matching">
+                <i class="fas fa-gavel"></i> Lawyer Matching
+            </button>
+            <button class="nav-btn" onclick="openModal('data_enrich')" data-tooltip="enrich">
+                <i class="fas fa-file-contract"></i> Data Enrichment (EDR)
+            </button>
+            <button class="nav-btn" onclick="openModal('value_tracker')" data-tooltip="tracker">
+                <i class="fas fa-sync-alt"></i> Live Value Tracker
+            </button>
+            <button class="nav-btn" onclick="openModal('shap_guide')" data-tooltip="shap">
+                <i class="fas fa-lightbulb"></i> Strategic Guidance
+            </button>
+        </div>
+    </section>
+
+    <section id="dashboard" class="card" style="padding: 0; background: transparent; box-shadow: none;">
+        
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('triage')">Live Triage Queue</button>
+            <button class="tab-button tab-btn" onclick="switchTab('ops')">Predictive Ops Center</button>
+        </div>
+
+        <div id="triage-view" class="ops-grid active" style="display: grid; grid-template-columns: 1fr; gap: 20px;">
+            <div class="kpi-grid">
+                <div class="kpi-tile" data-tooltip="kpi_speed">
+                    <div class="kpi-label">Acquisition Speed</div>
+                    <div class="kpi-value" id="val-speed">2:01</div>
+                    <div style="font-size:0.8em; color:var(--color-accent);"><i class="fas fa-arrow-down"></i> 12% vs Avg</div>
+                </div>
+                <div class="kpi-tile" data-tooltip="kpi_elite">
+                    <div class="kpi-label">Elite Leads Today</div>
+                    <div class="kpi-value" id="val-elite">12</div>
+                    <div style="font-size:0.8em; color:var(--color-accent);"><i class="fas fa-arrow-up"></i> 3 New</div>
+                </div>
+                <div class="kpi-tile" data-tooltip="kpi_roi">
+                    <div class="kpi-label">Valuation Fidelity</div>
+                    <div class="kpi-value" id="val-roi">91%</div>
+                    <div style="font-size:0.8em; color:var(--color-text-light);">Model Confidence</div>
+                </div>
+            </div>
+
+            <!-- Unmet Market Demand + Prospective Client Radar container -->
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
+                <!-- Unmet Market Demand (placeholder for your existing card if needed) -->
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-search-dollar"></i> Unmet Market Demand</div>
+                    <p style="font-size:0.9em; color:var(--color-text-light);">
+                        Identify geographic and practice-area pockets where serious crashes and claims outpace current intake volume.
+                    </p>
+                    <ul class="alert-feed">
+                        <li class="alert-item"><strong>Cobb County – Nighttime CMV Crashes:</strong> 3× above baseline, low current ad density.</li>
+                        <li class="alert-item"><strong>I-20 East (DeKalb):</strong> Repeat severe collisions near exit 67 with few signed cases.</li>
+                        <li class="alert-item"><strong>South Fulton Pedestrian Zone:</strong> High severity, low billboard and PPC presence.</li>
+                    </ul>
+                </div>
+
+                <!-- NEW Prospective Client Radar Card -->
+                <div class="card" id="prospect-radar-card" data-tooltip="prospect_radar">
+                    <div class="card-header">
+                        <i class="fas fa-radar"></i> Prospective Client Radar (Web Intelligence)
+                    </div>
+                    <p style="font-size:0.9em; color:var(--color-text-light); margin-bottom:10px;">
+                        Real-time web and public-data signals ranked by Propensity Score and mapped to your Ideal Client Personas.
+                    </p>
+                    <div>
+                        <div class="prospect-row" onclick="openModal('prospect_savannah_crash')">
+                            <div class="prospect-score">92</div>
+                            <div>
+                                <div><strong>CMV Crash – Savannah</strong></div>
+                                <div class="prospect-source">Source: Police blotter + traffic cams</div>
+                            </div>
+                            <div class="prospect-persona">Catastrophic PI</div>
+                            <div style="text-align:right; font-size:0.8em;">Hot Zone</div>
+                        </div>
+                        <div class="prospect-row" onclick="openModal('prospect_reddit_user')">
+                            <div class="prospect-score mid">78</div>
+                            <div>
+                                <div><strong>Reddit User – r/legaladvice</strong></div>
+                                <div class="prospect-source">Source: Keyword monitor (“trucking company won’t pay”)</div>
+                            </div>
+                            <div class="prospect-persona">Litigation Ready</div>
+                            <div style="text-align:right; font-size:0.8em;">Engaged</div>
+                        </div>
+                        <div class="prospect-row" onclick="openModal('prospect_hospital_geo')">
+                            <div class="prospect-score mid">68</div>
+                            <div>
+                                <div><strong>ER Intake – South Fulton</strong></div>
+                                <div class="prospect-source">Source: Hospital geo-fence alerts</div>
+                            </div>
+                            <div class="prospect-persona">High-Risk Motorist</div>
+                            <div style="text-align:right; font-size:0.8em;">Watch</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:10px; font-size:0.8em; color:var(--color-text-light);">
+                        Propensity Score = likelihood of ideal-case fit (0–100), derived from severity, venue, keyword intent, and entity signals.
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><i class="fas fa-list-ul"></i> Active Elite Stream (Simulated)</div>
+                <div class="lead-list" id="lead-feed">
+                    <div style="text-align: center; padding: 20px; color: #999; font-style: italic;">System Waiting for Intake...</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header"><i class="fas fa-layer-group"></i> Liability Breakdown (SHAP Analysis)</div>
+                <div id="shap-bars" style="height: 150px; display:flex; flex-direction: column; justify-content: center; gap: 10px;">
+                    <div style="font-size:0.9em; display:flex; align-items:center;">
+                        <span style="width:120px;">Evidence of Fatigue</span>
+                        <div style="height:12px; width:70%; background:var(--color-accent); border-radius:4px;"></div>
+                        <span style="margin-left:10px; font-weight:700;">+$1.2M</span>
+                    </div>
+                    <div style="font-size:0.9em; display:flex; align-items:center;">
+                        <span style="width:120px;">Perm. Impairment</span>
+                        <div style="height:12px; width:50%; background:var(--color-accent); border-radius:4px;"></div>
+                        <span style="margin-left:10px; font-weight:700;">+$900k</span>
+                    </div>
+                     <div style="font-size:0.9em; display:flex; align-items:center;">
+                        <span style="width:120px;">Treatment Gaps</span>
+                        <div style="height:12px; width:10%; background:var(--color-alert); border-radius:4px;"></div>
+                        <span style="margin-left:10px; font-weight:700;">-$150k</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="ops-view" class="ops-grid">
+            <div class="card" style="grid-column: 1 / 3;">
+                <div class="card-header"><i class="fas fa-map-marked-alt"></i> Risk Heatmap (Cobb/Fulton)</div>
+                <div class="map-mock">
+                    <i class="fas fa-map" style="font-size: 4em; opacity: 0.5;"></i>
+                    <p style="margin-top:15px;">Simulating Public Data Aggregation (DOT/Weather)</p>
+                    <div style="background: rgba(0,0,0,0.6); padding: 10px; border-radius: 4px; margin-top: 10px;">
+                        <i class="fas fa-exclamation-triangle" style="color: #FFC107;"></i> High Risk Alert: I-75 North / Fog + High Volume
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card" style="grid-column: 1 / 2;">
+                <div class="card-header"><i class="fas fa-video"></i> Real-Time Detection</div>
+                <ul class="alert-feed" id="alert-feed">
+                    <li class="alert-item"><span class="alert-crit">[CRITICAL]</span> Stopped CMV on I-285 (Cam #42)</li>
+                    <li class="alert-item"><span style="color:#F57C00">[WARN]</span> Harsh Braking Event (Telematics)</li>
+                    <li class="alert-item">Red Light Violation Detected (Marietta)</li>
+                </ul>
+            </div>
+
+            <div class="card" style="grid-column: 2 / 3;">
+                <div class="card-header"><i class="fas fa-tachometer-alt"></i> Driver Behavior</div>
+                 <ul class="alert-feed">
+                    <li class="alert-item"><strong>Phone Use:</strong> 4 Events</li>
+                    <li class="alert-item"><strong>Lane Drift:</strong> High Freq.</li>
+                    <li class="alert-item"><strong>Score:</strong> <span class="alert-crit">D- (Risk)</span></li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <aside id="controls" class="card">
+        <div class="card-header"><i class="fas fa-sliders-h"></i> Simulation Controls</div>
+        
+        <div class="control-panel">
+            <label style="font-weight: 600; font-size: 0.9em; display:block; margin-bottom: 5px;">Inject Scenario:</label>
+            <select id="scenario-select" style="width:100%; padding: 8px; margin-bottom: 10px; border-radius:4px; border:1px solid #ccc;">
+                <option value="catastrophic">Catastrophic (K/A) - Cobb County</option>
+                <option value="moderate">Moderate (C/B) - Fulton County</option>
+                <option value="low">Low Priority - Dismiss</option>
+            </select>
+            
+            <button class="simulation-btn" onclick="runIntakeSimulation()">
+                <i class="fas fa-play"></i> Score Lead Now
+            </button>
+            <div style="font-size:0.75em; color:#666; text-align:center; margin-top:5px;">Triggers FR-2.3 (XGBoost Scoring)</div>
+        </div>
+
+        <div class="card-header" style="margin-top: 20px;"><i class="fas fa-terminal"></i> System Log</div>
+        <div id="log-window">
+            <div class="log-entry"><span class="log-time">System</span> Ready. Waiting for intake...</div>
+        </div>
+    </aside>
+
+</main>
+
+<div id="modal-overlay" onclick="closeModal(event)">
+    <div id="modal-card">
+        <div class="modal-header">
+            <h2 id="m-title" style="margin:0; font-size:1.4em;">Modal Title</h2>
+            <button class="close-modal" onclick="closeModal(null, true)">&times;</button>
+        </div>
+        <div class="modal-body" id="m-body">
+        </div>
+    </div>
+</div>
+
+<div id="tooltip">
+    <div class="tooltip-header" id="tt-header">Metric Name</div>
+    <div id="tt-body" style="font-size:0.9em; color:#555;">Definition goes here.</div>
+    <div id="tt-problem" style="font-size:0.85em; margin-top:8px; color:var(--color-primary); font-weight:500;">Solves: Speed Kills</div>
+    <div id="tt-source" style="font-size:0.7em; color:#999; margin-top:5px; text-align:right;">Source: Simulated Feed</div>
+</div>
+
+<script>
+    // --- 1. DATA REPOSITORY (Lawyer-Centric) ---
+    const MODAL_DATA = {
+        'ad_spend': {
+            title: "Ad Spend ROI Analysis",
+            data: { "Top Keyword": "Wrongful Death Truck Accident Marietta", "Cost Per Click": "$145.00", "Conversion Rate": "18% (Elite)", "Projected Value": "$3.5M" },
+            insight: "Allocated 40% more budget to Cobb County geo-fence; resulted in 3 high-value signings this week. (Agent 1)"
+        },
+        'initial_vetting': {
+            title: "Initial Vetting (Vapi AI)",
+            data: { "Caller": "Sarah Jenkins", "Incident Type": "T-Bone / Red Light", "Injuries": "TBI, Fractures (K/A)", "Liability": "Driver admitted fault" },
+            insight: "Clear liability admission captured in initial screening. Immediate preservation letter required."
+        },
+        'case_confidence': {
+            title: "Predicted Case Confidence",
+            data: { "G-TCCP Score": "94/100 (Elite)", "Venue Factor": "+15 (Fulton)", "Defendant": "Swift Trans (+20)", "Injury Multiplier": "+30 (Surgical)" },
+            insight: "System confidence is high. Fits our 'Ideal Case Profile' for punitive damages."
+        },
+        'handoff': {
+            title: "Handoff & MyCase Update",
+            data: { "Status": "Success", "MyCase File": "#TRK-2025-089", "Action": "Consultation Booked", "Team Alerted": "C. Graham, G. Berry" },
+            insight: "Client intake packet sent via DocuSign. Investigator dispatched to crash scene."
+        },
+        'lawyer_match': {
+            title: "Lawyer Matching Algorithm",
+            data: { "Recommended": "Charles Graham", "Match Reason": "98% Win-Rate (Cobb)", "Case Type": "Catastrophic Trucking" },
+            insight: "Case involves complex federal HOS regs; requires Attorney Graham's specific expertise."
+        },
+        'data_enrich': {
+            title: "Data Enrichment (EDR/HOS)",
+            data: { "EDR Speed": "72mph (Zone 55)", "Braking": "0.5s Post-Impact", "ELD Logs": "14.5 Hours On-Duty" },
+            insight: "Objective proof of negligence per se. Supports Motion for Summary Judgment."
+        },
+        'value_tracker': {
+            title: "Live Case Value Tracker",
+            data: { "Current Range": "$4.2M - $5.8M", "Last Change": "+$850k (Surgery)", "Settlement Prob": "85% Post-Discovery" },
+            insight: "Do not accept initial offer of $1.5M. Discovery of logbook falsification raised floor value."
+        },
+        'shap_guide': {
+            title: "Strategic Guidance (SHAP)",
+            data: { "Top Driver": "Fatigue (+$1.2M)", "Secondary": "Perm. Impairment", "Risk Factor": "Treatment Gaps" },
+            insight: "Focus deposition strategy on Safety Director's failure to audit logs."
+        },
+
+        // --- NEW: Prospective Client Radar deep dives ---
+        'prospect_savannah_crash': {
+            title: "Prospective Client: CMV Crash – Savannah",
+            data: {
+                "Propensity Score": "92 / 100 (Elite)",
+                "Persona Segment": "Catastrophic PI – Rural/Port Corridor",
+                "Source Signals": "Automated police blotter + DOT incident feed + weather + CMV plate",
+                "Venue / Geography": "Savannah (Chatham County) – High verdict history for trucking",
+                "Severity Indicators": "Multi-vehicle; rollover; medevac dispatch; nighttime fog",
+                "Ideal Client Match": "Meets criteria: CMV defendant, clear impact, significant injuries"
+            },
+            insight: "Recommended Strategy: Launch hyper-local geo-fence ads around the hospital and tow yards; assign investigator to photograph scene and canvass witnesses within 12 hours."
+        },
+        'prospect_reddit_user': {
+            title: "Prospective Client: Reddit User – r/legaladvice",
+            data: {
+                "Propensity Score": "78 / 100",
+                "Persona Segment": "Litigation-Ready Consumer – Digital Native",
+                "Source Signals": "Keyword cluster: 'trucking company won't pay', 'adjuster lowball', 'need serious lawyer'; post history; state flair",
+                "Venue / Geography": "Atlanta metro; likely Fulton or Cobb",
+                "Behavioral Pattern": "Multiple long-form posts, high engagement, frustration with insurer",
+                "Ideal Client Match": "Liability plausibly strong; economic + non-economic damages in medium–high band"
+            },
+            insight: "Recommended Strategy: Serve educational content via privacy-compliant ad channels (no direct solicitation); drive to quiz-style landing page that prequalifies and invites a discrete consultation."
+        },
+        'prospect_hospital_geo': {
+            title: "Prospective Client: ER Intake – South Fulton",
+            data: {
+                "Propensity Score": "68 / 100",
+                "Persona Segment": "High-Risk Motorist – Community Anchor",
+                "Source Signals": "Hospital geo-fence + mobile device graph; visit tagged as 'post-MVC'; evening arrival",
+                "Venue / Geography": "South Fulton pedestrian/corridor zone",
+                "Severity Indicators": "ER visit within 2 hours of collision; imaging ordered",
+                "Ideal Client Match": "Triage as watch-list; further qualification needed on liability facts"
+            },
+            insight: "Recommended Strategy: Run awareness creative focusing on patient rights and follow-up care in a tight radius; coordinate with medical lien partners and schedule soft outreach from intake team when contact is initiated."
+        }
+    };
+
+    const TOOLTIP_DATA = {
+        'ad_roi': { title: "Ad Spend ROI", text: "Measures efficiency of marketing spend.", problem: "Solves Wasted Ad Spend.", source: "Google Ads API" },
+        'vetting': { title: "AI Vetting", text: "Automated voice intake summary.", problem: "Solves Intake Bottlenecks.", source: "Vapi Voice Stream" },
+        'confidence': { title: "Confidence Score", text: "ML Probability of >$1M value.", problem: "Solves Qualification Waste.", source: "XGBoost Model" },
+        'handoff': { title: "Auto Handoff", text: "Instant CRM entry creation.", problem: "Solves Admin Lag.", source: "n8n Orchestrator" },
+        'kpi_speed': { title: "Acquisition Speed", text: "Time from form to contact.", problem: "Solves 'Speed Kills' problem.", source: "System Timer" },
+        'kpi_elite': { title: "Elite Leads", text: "Count of >85% score cases.", problem: "Filters Low-Value Noise.", source: "Triage Engine" },
+        'kpi_roi': { title: "Valuation Fidelity", text: "Accuracy vs Final Verdict.", problem: "Validates Model Trust.", source: "Historical DB" },
+
+        // NEW tooltip for Prospective Client Radar
+        'prospect_radar': {
+            title: "Prospective Client Radar",
+            text: "Continuously scans web, public records, and geo signals to rank potential clients by Propensity Score and persona fit before they ever call your firm.",
+            problem: "Solves the blind spot between Unmet Market Demand (strategy) and Active Elite Stream (inbound calls) by surfacing high-fit prospects for targeted outbound.",
+            source: "Web Scrapers, Police Blotters, Forums, Geo-Fence Feeds"
+        }
+    };
+
+    // --- 2. SIMULATION ENGINE ---
+    let eliteLeads = 12;
+    
+    const seed = 12345;
+    let currentSeed = seed;
+    function random() {
+        currentSeed = (currentSeed * 1664525 + 1013904223) % 4294967296;
+        return currentSeed / 4294967296;
+    }
+
+    function runClock() {
+        setInterval(() => {
+            const speedEl = document.getElementById('val-speed');
+            let baseSec = 121; // 2:01
+            let vary = Math.floor(random() * 10) - 5;
+            let total = baseSec + vary;
+            let m = Math.floor(total/60);
+            let s = (total % 60).toString().padStart(2,'0');
+            speedEl.innerText = `${m}:${s}`;
+        }, 2000);
+    }
+
+    // --- 3. UI FUNCTIONS ---
+    function log(msg, type="info") {
+        const win = document.getElementById('log-window');
+        const time = new Date().toLocaleTimeString();
+        let color = "#81C784";
+        if(type === 'alert') color = "#E57373";
+        
+        const entry = `<div class="log-entry" style="color:${color}"><span class="log-time">[${time}]</span> ${msg}</div>`;
+        win.innerHTML = entry + win.innerHTML;
+    }
+
+    function runIntakeSimulation() {
+        const scenario = document.getElementById('scenario-select').value;
+        const feed = document.getElementById('lead-feed');
+        
+        log("Received new lead from Web Form...", "info");
+        
+        setTimeout(() => {
+            log("AI Voice Agent initiated call...", "info");
+        }, 500);
+
+        setTimeout(() => {
+            let score, badgeClass, title, value;
+            
+            if(scenario === 'catastrophic') {
+                score = 94; badgeClass = "elite"; title = "Sarah Jenkins (Cobb)"; value = "$4.5M+";
+                log("Data Extracted: TBI, Liability Admitted.", "alert");
+            } else if (scenario === 'moderate') {
+                score = 72; badgeClass = ""; title = "John Doe (Fulton)"; value = "$250k";
+                log("Data Extracted: Soft tissue, disputed liability.", "info");
+            } else {
+                score = 15; badgeClass = ""; title = "Unknown (Low Priority)"; value = "<$50k";
+                log("Lead Disqualified: Minor damage only.", "info");
+                return;
+            }
+
+            log(`Scoring Complete: ${score}/100. Forecast: ${value}`, "alert");
+            if(score > 85) {
+                eliteLeads++;
+                document.getElementById('val-elite').innerText = eliteLeads;
+                
+                const card = `
+                <div class="lead-card">
+                    <div class="lead-score">${score}<small>Prob.%</small></div>
+                    <div class="lead-details">
+                        <h4>${title}</h4>
+                        <p><strong>Forecast:</strong> ${value} | <strong>Status:</strong> Handoff Complete</p>
+                    </div>
+                    <div class="lead-action">
+                        <button onclick="openModal('handoff')">VIEW IN MYCASE</button>
+                    </div>
+                </div>`;
+                
+                if(feed.innerHTML.includes("Waiting")) feed.innerHTML = "";
+                feed.innerHTML = card + feed.innerHTML;
+            }
+            
+        }, 1500);
+    }
+
+    function openModal(key) {
+        const data = MODAL_DATA[key];
+        if(!data) return;
+
+        document.getElementById('m-title').innerText = data.title;
+        let bodyHtml = '';
+        
+        for (const [k, v] of Object.entries(data.data)) {
+            bodyHtml += `
+            <div class="data-row">
+                <span class="data-label">${k}</span>
+                <span class="data-val">${v}</span>
+            </div>`;
+        }
+        
+        bodyHtml += `<div class="insight-box"><strong>Lawyer Insight:</strong> "${data.insight}"</div>`;
+        
+        document.getElementById('m-body').innerHTML = bodyHtml;
+        document.getElementById('modal-overlay').style.display = 'flex';
+    }
+
+    function closeModal(e, force=false) {
+        if(force || (e && e.target && e.target.id === 'modal-overlay')) {
+            document.getElementById('modal-overlay').style.display = 'none';
+        }
+    }
+
+    function switchTab(tab) {
+        const triage = document.getElementById('triage-view');
+        const ops = document.getElementById('ops-view');
+        const btns = document.querySelectorAll('.tab-btn');
+        
+        btns.forEach(b => b.classList.remove('active'));
+        
+        if(tab === 'triage') {
+            triage.style.display = 'grid';
+            ops.style.display = 'none';
+            btns[0].classList.add('active');
+        } else {
+            triage.style.display = 'none';
+            ops.style.display = 'grid';
+            btns[1].classList.add('active');
+        }
+    }
+
+    // --- 4. TOOLTIP LOGIC ---
+    const tooltip = document.getElementById('tooltip');
+    
+    document.querySelectorAll('[data-tooltip]').forEach(el => {
+        el.addEventListener('mouseenter', (e) => {
+            const key = el.getAttribute('data-tooltip');
+            const info = TOOLTIP_DATA[key];
+            if(!info) return;
+
+            document.getElementById('tt-header').innerText = info.title;
+            document.getElementById('tt-body').innerText = info.text;
+            document.getElementById('tt-problem').innerText = info.problem;
+            document.getElementById('tt-source').innerText = "Source: " + info.source;
+            
+            const rect = el.getBoundingClientRect();
+            tooltip.style.top = (rect.bottom + 10) + 'px';
+            tooltip.style.left = (rect.left) + 'px';
+            tooltip.classList.add('visible');
+        });
+
+        el.addEventListener('mouseleave', () => {
+            tooltip.classList.remove('visible');
+        });
+    });
+
+    runClock();
+</script>
+
+</body>
+</html>
