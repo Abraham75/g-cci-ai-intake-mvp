@@ -59,7 +59,6 @@ Telematics / EDR enrichment
 
 Live alert stream (CRITICAL / WARN / INFO)
 
-MVP Architecture
 Frontend (HTML / JS Dashboard)
         |
         v
@@ -82,14 +81,12 @@ RAG + Compliance Layer
   ├── FMCSA Regulations
   ├── GA Trucking Case Law
   └── Advertising & Ethics Filters
-
-API Endpoints
-Endpoint	Description
-POST /intake	Accepts and stores raw lead data
-POST /score	Returns LeadScore + Value Estimate
-POST /explain	Returns SHAP + Plain-English reasoning
-POST /compliance-trace	Returns sources + filters applied
-Repository Structure
+| Endpoint                 | Description                            |
+| ------------------------ | -------------------------------------- |
+| `POST /intake`           | Accepts and stores raw lead data       |
+| `POST /score`            | Returns LeadScore + Value Estimate     |
+| `POST /explain`          | Returns SHAP + Plain-English reasoning |
+| `POST /compliance-trace` | Returns sources + filters applied      |
 app/
  ├── app.py           # FastAPI entrypoint
  ├── engine.py       # Scoring + routing logic
@@ -132,4 +129,3 @@ CRM + call routing automation
 
 Author: Abraham Gilbert
 License: Proprietary MVP Prototype
-
