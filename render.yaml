@@ -1,0 +1,9 @@
+﻿services:
+  - type: web
+    name: g-cci-ai-intake
+    env: node
+    buildCommand: npm install
+    startCommand: npm run server
+    envVars:
+      - key: NODE_ENV
+        value: production
