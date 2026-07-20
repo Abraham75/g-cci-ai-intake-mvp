@@ -9,10 +9,10 @@ jobs:
   typescript-build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout PR commit
+      - name: Checkout source branch
         run: |
-          git clone "https://github.com/${GITHUB_REPOSITORY}.git" .
-          git checkout "${GITHUB_SHA}"
+          REF="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          git clone --depth 1 --branch "${REF}" "https://github.com/${GITHUB_REPOSITORY}.git" .
       - name: Install Node dependencies
         run: npm install
       - name: TypeScript build
@@ -21,10 +21,10 @@ jobs:
   ontology-validation:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout PR commit
+      - name: Checkout source branch
         run: |
-          git clone "https://github.com/${GITHUB_REPOSITORY}.git" .
-          git checkout "${GITHUB_SHA}"
+          REF="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          git clone --depth 1 --branch "${REF}" "https://github.com/${GITHUB_REPOSITORY}.git" .
       - name: Install ontology validators
         run: python3 -m pip install --upgrade pip rdflib pyshacl
       - name: Parse RDF/OWL and run SHACL validation
