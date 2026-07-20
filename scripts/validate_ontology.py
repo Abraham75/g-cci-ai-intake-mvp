@@ -25,17 +25,25 @@ def main() -> None:
         if not ttl_files:
             raise SystemExit("No Turtle files found in ontology package")
 
-        parsed = []
+        parsed: list[str] = []
         for ttl in ttl_files:
             Graph().parse(ttl, format="turtle")
             parsed.append(str(ttl.relative_to(tmp_path)))
 
         data_file = tmp_path / "examples" / "phillips-demo.ttl"
+        ontology_files = sorted(tmp_path.glob("gcci-*.ttl"))
         shape_files = sorted((tmp_path / "shapes").glob("*.ttl"))
-        if not data_file.exists() or not shape_files:
-            raise SystemExit("Synthetic example graph or SHACL shapes are missing")
+        if not data_file.exists() or not ontology_files or not shape_files:
+            raise SystemExit("Ontology modules, synthetic example graph, or SHACL shapes are missing")
 
-        data_graph = Graph().parse(data_file, format="turtle")
+        # SHACL class constraints depend on the formal ontology's class and
+        # instance declarations, so validate the example graph together with
+        # the ontology graph rather than validating the example in isolation.
+        data_graph = Graph()
+        for ontology_file in ontology_files:
+            data_graph.parse(ontology_file, format="turtle")
+        data_graph.parse(data_file, format="turtle")
+
         shapes_graph = Graph()
         for shape_file in shape_files:
             shapes_graph.parse(shape_file, format="turtle")
@@ -52,6 +60,8 @@ def main() -> None:
         result = {
             "package": PACKAGE.name,
             "ttl_files_parsed": len(parsed),
+            "ontology_modules_loaded": len(ontology_files),
+            "shape_files_loaded": len(shape_files),
             "files": parsed,
             "shacl_conforms": bool(conforms),
             "report": report_text,
