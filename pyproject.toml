@@ -1,0 +1,20 @@
+[project]
+name = "gcci-ai-intake-mvp"
+version = "1.1.0"
+description = "G-CCI AI Intake and litigation intelligence MVP"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn>=0.30,<1.0",
+  "pydantic>=2.8,<3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0,<9.0",
+  "httpx>=0.27,<1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
