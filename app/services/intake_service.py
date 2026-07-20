@@ -11,9 +11,9 @@ class IntakeService:
         result = self.engine.score(lead)
         result["case_file_id"] = str(uuid4()) if result["lead_confidence"] >= 70 and result["route"] != "REJECT" else None
         append_entry(
-            entity_type="lead",
-            entity_id=result["lead_id"],
-            action="intake_scored",
+            aggregate_type="lead",
+            aggregate_id=result["lead_id"],
+            event_type="intake_scored",
             payload={
                 "route": result["route"],
                 "lead_confidence": result["lead_confidence"],
