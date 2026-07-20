@@ -9,20 +9,23 @@ jobs:
   typescript-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: npm install
-      - run: npm run build
+      - name: Checkout PR commit
+        run: |
+          git clone "https://github.com/${GITHUB_REPOSITORY}.git" .
+          git checkout "${GITHUB_SHA}"
+      - name: Install Node dependencies
+        run: npm install
+      - name: TypeScript build
+        run: npm run build
 
   ontology-validation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: python -m pip install --upgrade pip
-      - run: pip install rdflib pyshacl
-      - run: python scripts/validate_ontology.py
+      - name: Checkout PR commit
+        run: |
+          git clone "https://github.com/${GITHUB_REPOSITORY}.git" .
+          git checkout "${GITHUB_SHA}"
+      - name: Install ontology validators
+        run: python3 -m pip install --upgrade pip rdflib pyshacl
+      - name: Parse RDF/OWL and run SHACL validation
+        run: python3 scripts/validate_ontology.py
