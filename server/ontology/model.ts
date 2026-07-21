@@ -1,5 +1,22 @@
-export type FactStatus = "ObservedFact" | "InferredFact" | "Allegation" | "ModelPrediction" | "AttorneyValidatedFact";
-export type AccessClassification = "OpenPublicData" | "OpenRecordsRequestRequired" | "RestrictedGovernmentData" | "DPPARestricted" | "HIPAARestricted" | "DiscoveryObtainable" | "SubpoenaRequired" | "CourtOrderRequired" | "Unclassified";
+export type FactStatus =
+  | "ObservedFact"
+  | "InferredFact"
+  | "Allegation"
+  | "ModelPrediction"
+  | "AttorneyValidatedFact";
+
+export type AccessClassification =
+  | "OpenPublicData"
+  | "OpenRecordsRequestRequired"
+  | "RestrictedGovernmentData"
+  | "DPPARestricted"
+  | "HIPAARestricted"
+  | "DiscoveryObtainable"
+  | "SubpoenaRequired"
+  | "CourtOrderRequired"
+  | "Unclassified";
+
+export type Tier = "A" | "B" | "C" | "D";
 
 export interface TemporalObservation {
   eventOccurrenceTime?: string;
@@ -20,9 +37,19 @@ export interface ConfidenceBreakdown {
   partyAttribution: number;
 }
 
+export interface ScoreComponents {
+  liability: number;
+  injury: number;
+  collectability: number;
+  evidence: number;
+  mechanismSeverity: number;
+  defendantResolution: number;
+  uncertaintyPenalty: number;
+}
+
 export interface CaseOpportunityScore {
   score: number;
-  tier: "HIGH" | "MEDIUM" | "LOW";
+  tier: Tier;
   reasons: string[];
   reviewedAt: string;
   confidence: ConfidenceBreakdown;
@@ -30,7 +57,7 @@ export interface CaseOpportunityScore {
 }
 
 export const ONTOLOGY_VERSION = "gcci-ontology-v1.0.0";
-export const SCORING_MODEL_VERSION = "gcci-intake-score-v1.0.0";
+export const SCORING_MODEL_VERSION = "gcci-cos-v1.0-consolidated-ts-port";
 
 export function buildTemporalObservation(payload: any): TemporalObservation {
   const incidentTime = payload?.incident?.occurredAt ?? payload?.incident?.dateTime;
@@ -44,6 +71,6 @@ export function buildTemporalObservation(payload: any): TemporalObservation {
     sourceTime: payload?.source?.sourceTime,
     ingestionTime: new Date().toISOString(),
     effectiveTime: payload?.source?.effectiveTime,
-    clockUncertaintySeconds: payload?.source?.clockUncertaintySeconds
+    clockUncertaintySeconds: payload?.source?.clockUncertaintySeconds,
   };
 }
