@@ -2,9 +2,9 @@
 
 **Graham Case Correlation Intelligence**
 
-G-CCI is a lawyer-centric legal intelligence platform for catastrophic personal-injury and commercial-trucking litigation. The current MVP is evolving from a basic intake scorer into a broader case-discovery, incident-correlation, evidence, provenance, and compliance-controlled decision platform.
+G-CCI is a lawyer-centric legal intelligence platform for catastrophic personal-injury and commercial-trucking litigation. The current MVP is evolving from a basic intake scorer into a broader case-discovery, incident-correlation, evidence, provenance, contradiction, party-resolution, and compliance-controlled decision platform.
 
-The canonical runtime on the active integration branch is now the TypeScript/Express service under `server/`.
+The canonical runtime on the active integration branch is the TypeScript/Express service under `server/`.
 
 ---
 
@@ -12,15 +12,15 @@ The canonical runtime on the active integration branch is now the TypeScript/Exp
 
 G-CCI is designed to transform fragmented incident, intake, evidence, party, and compliance signals into explainable litigation intelligence.
 
-The platform is intended to help attorneys answer five different questions without collapsing them into one score:
+The platform keeps five questions structurally separate:
 
-1. **Event Correlation Confidence** — are two records or events actually connected?
+1. **Event Correlation Confidence** — are records or events actually connected?
 2. **Causal Relationship Confidence** — did one event cause or materially contribute to another?
 3. **Party Attribution Confidence** — can responsibility be tied to a specific vehicle, person, carrier, or organization?
 4. **Case Opportunity Score** — is the matter economically and legally worth deeper attorney investigation?
 5. **Contact Eligibility** — is outreach legally and operationally permitted after compliance review?
 
-These dimensions are intentionally separate. A high Case Opportunity Score does not authorize outreach, and a high event-correlation score does not increase party attribution automatically.
+A high Case Opportunity Score does not authorize outreach, and high event correlation does not automatically increase party attribution.
 
 ---
 
@@ -28,7 +28,7 @@ These dimensions are intentionally separate. A high Case Opportunity Score does 
 
 ## 1. Canonical Case Opportunity Scoring
 
-G-CCI now uses the canonical Case Opportunity Score formula:
+G-CCI uses the canonical Case Opportunity Score formula:
 
 ```text
 COS =
@@ -52,15 +52,13 @@ Tier C: COS >= 0.45
 Tier D: COS < 0.45
 ```
 
-An unresolved high-severity contradiction forces the opportunity to **Tier C**, regardless of the raw COS.
+An unresolved high-severity contradiction forces an opportunity to **Tier C**, regardless of the raw COS.
 
-The current mechanism-severity values are illustrative and not yet outcome-calibrated.
+The current scoring weights and mechanism-severity values are explicit but illustrative and are not yet calibrated against real outcomes.
 
 ---
 
 ## 2. Separate Confidence Dimensions
-
-The scoring runtime keeps these three confidence measures independent:
 
 ```text
 Event Correlation Confidence
@@ -68,25 +66,13 @@ Event Correlation Confidence
 != Party Attribution Confidence
 ```
 
-### Event Correlation
-
-Measures whether records or events appear connected.
-
-### Causal Relationship
-
-Measures whether one incident likely caused or contributed to another.
-
-### Party Attribution
-
-Measures whether a specific party can be supported by verified evidence.
-
 Party attribution is not increased by lead value, contact completeness, event correlation, or causation alone.
 
 ---
 
 ## 3. Temporal Evidence Model
 
-G-CCI preserves different clocks as different facts rather than collapsing them into a single timestamp.
+G-CCI preserves different clocks as different facts rather than collapsing them into one timestamp.
 
 Supported temporal fields include:
 
@@ -101,7 +87,7 @@ Supported temporal fields include:
 - effective time
 - clock uncertainty
 
-This is especially important when reconstructing crash sequences, secondary incidents, debris events, and multi-source timelines.
+This supports later crash-sequence reconstruction, secondary-event analysis, and multi-source timeline reasoning.
 
 ---
 
@@ -109,7 +95,7 @@ This is especially important when reconstructing crash sequences, secondary inci
 
 The repository includes the formal G-CCI ontology package under `ontology/`.
 
-The ontology defines the semantic contract for:
+The semantic contract covers:
 
 - incidents and incident records
 - roadway and infrastructure entities
@@ -131,8 +117,6 @@ The ontology defines the semantic contract for:
 - provenance
 - immutable decision-ledger entries
 
-The formal package includes RDF/OWL vocabularies, SHACL validation shapes, synthetic Phillips/Event5122820 example data, and SPARQL competency queries.
-
 ### Core Semantic Invariants
 
 1. Records are not incidents.
@@ -144,37 +128,31 @@ The formal package includes RDF/OWL vocabularies, SHACL validation shapes, synth
 7. Human adjudication does not overwrite original machine output.
 8. Corrections supersede prior entries rather than deleting history.
 9. Temporal clocks remain distinct.
-10. Material decisions must retain provenance.
+10. Material decisions retain provenance.
 
 ---
 
 ## 5. SHACL Validation
 
-The ontology package contains SHACL constraints for:
+The ontology package contains SHACL constraints for incident structure, evidence, parties, hypotheses, opportunities, confidence dimensions, compliance states, and ledger entries.
 
-- incident structure
-- incident-record linkage
-- evidence requirements
-- party-resolution data
-- hypotheses
-- case-opportunity scores
-- confidence dimensions
-- contact-eligibility conditions
-- ledger-entry structure
+Validation tooling is provided under:
 
-The repository also includes ontology validation tooling intended to parse all Turtle files and run SHACL validation against the synthetic demonstration graph.
+```text
+scripts/validate_ontology.py
+```
 
 ---
 
 ## 6. Temporal Evidence + Provenance + Decision Ledger
 
-The runtime now includes an append-only decision ledger under:
+The runtime includes an append-only decision ledger under:
 
 ```text
 server/ontology/ledger.ts
 ```
 
-The ledger records material machine and human events, including:
+Ledger entry types include:
 
 - Evidence
 - TemporalObservation
@@ -187,30 +165,15 @@ The ledger records material machine and human events, including:
 - Explanation
 - RagRetrieval
 
-Every entry can retain:
+Entries retain subject ID, payload, producer, timestamp, source system, model version, input ledger-entry IDs, supersession references, and sequential hashes.
 
-- subject ID
-- payload
-- producing service or human reviewer
-- production timestamp
-- source system
-- model version
-- input ledger-entry IDs
-- supersession reference
-- previous hash
-- entry hash
+### Current Production Limitation
 
-The current implementation is process-local and in-memory, but entries are SHA-256 hash-linked so tampering with sequence relationships can be detected.
-
-### Important Production Limitation
-
-The current ledger resets when the server restarts. Production deployment should move this contract to durable append-only persistence such as PostgreSQL or an event store, with database-level protections and transactional hash-chain enforcement.
+The ledger is currently in-memory and resets when the process restarts. Production deployment should move this contract to durable append-only persistence with database-level protections and transactional hash-chain enforcement.
 
 ---
 
 ## 7. Provenance-First Intake Flow
-
-The current TypeScript intake path follows this pattern:
 
 ```text
 POST /api/intake
@@ -222,30 +185,123 @@ Preserve Raw Intake / Evidence
 Temporal Normalization
         |
         v
+Automatic Contradiction Detection
+        |
+        v
 Canonical Case Opportunity Scoring
         |
         v
-Append Evidence + TemporalObservation + Score to Ledger
+Tier Override if High-Severity Conflict Is Unresolved
         |
         v
-Return Scoring + Confidence + Ledger Reference
+Append Evidence + TemporalObservation + Contradiction + Score to Ledger
+        |
+        v
+Return Score + Confidence + Contradictions + Ledger Reference
 ```
 
-Every score can therefore be traced back to the input and temporal-normalization entries that produced it.
+The score ledger entry references the evidence, temporal observation, and contradiction ledger entries used to derive the decision.
 
 ---
 
-## 8. Compliance / Activation Gate
+## 8. Contradiction Engine
 
-G-CCI now includes a safety-critical compliance gate under:
+The load-bearing contradiction engine is implemented under:
+
+```text
+server/ai/contradictions.ts
+```
+
+It scans evidence attributes for multiple distinct asserted values for the same attribute.
+
+Examples include:
+
+```text
+vehicle_color: white vs blue
+vehicle_type: work_truck vs suv
+license_plate: conflicting values
+carrier_name: conflicting values
+incident_time: conflicting times
+travel_direction: EB vs WB
+```
+
+Contradictions are first-class records with:
+
+- contradiction ID
+- subject ID
+- attribute key
+- all distinct conflicting values
+- supporting evidence/source references
+- severity
+- detection timestamp
+- resolution state
+- analyst resolution details
+
+### Severity Rules
+
+Current illustrative severity assignments include:
+
+```text
+HIGH
+vehicle_color
+vehicle_type
+license_plate
+carrier_name
+
+MEDIUM
+incident_time
+travel_direction
+lane
+
+LOW
+weather
+road_condition
+```
+
+Unlisted attributes default to medium severity.
+
+### Tier-C Enforcement
+
+The contradiction engine now feeds the canonical scorer directly.
+
+```text
+unresolved high-severity contradiction
+        ->
+contradictionCountsFor(subjectId)
+        ->
+ScoreIntakeInput.contradictions
+        ->
+classifyTier(...)
+        ->
+Tier C forced
+```
+
+The previous hardcoded `{ highSeverityUnresolved: 0, other: 0 }` bridge has been removed from the runtime.
+
+### Human Resolution
+
+An analyst may resolve a contradiction only when:
+
+- at least one evidence reference is supplied, and
+- the accepted value is one of the values actually asserted in the contradiction record.
+
+The original machine-detected contradiction is not deleted. Resolution is added as a new ledger event.
+
+### Current Limitation
+
+Attribute comparison is exact-string based. Semantic equivalence, numeric tolerances, time-window reconciliation, and color-family matching are future work.
+
+---
+
+## 9. Compliance / Activation Gate
+
+The safety-critical compliance gate is implemented under:
 
 ```text
 server/compliance/gate.ts
 ```
 
-The gate makes **Case Opportunity Score** and **permission to contact** fully independent.
-
-A subject becomes contact-eligible only when all required controls are satisfied:
+A subject becomes contact-eligible only when:
 
 ```text
 Legal Access Basis established
@@ -259,21 +315,11 @@ Eligible
 
 The gate never reads the Case Opportunity Score.
 
-A Tier A opportunity with no lawful access basis is still ineligible for activation.
-
-### Activation Behavior
-
-Blocked and approved activation attempts are both written to the decision ledger.
-
-The runtime does not infer legal access or solicitation clearance automatically. These are human-supplied review decisions.
-
-No unverified identity or contact information is introduced by the compliance module.
+Both blocked and approved activation attempts are written to the decision ledger.
 
 ---
 
-## 9. Party Resolution Ladder
-
-The current runtime supports the controlled party-resolution progression:
+## 10. Party Resolution Ladder
 
 ```text
 UNKNOWN
@@ -282,39 +328,31 @@ UNKNOWN
   -> VERIFIED
 ```
 
-Party identity progress is separate from compliance status.
+Party progression is separate from compliance status. A party cannot advance without evidence references, and every advancement is ledgered.
 
-A party cannot move forward without evidence references, and stage advancement is recorded in the ledger.
-
-Current party records contain structural role and resolution state only; they do not yet store or return names, phone numbers, addresses, or other protected identity data.
-
-Supported roles include:
-
-- Driver
-- Registered Owner
-- Motor Carrier
-- Witness
-- Injured Party
+The current module stores structural roles and resolution state only. It does not yet expose protected identity or contact information.
 
 ---
 
-## 10. Ontology and Ledger Audit APIs
-
-The TypeScript runtime exposes ontology and audit endpoints.
+# Runtime APIs
 
 | Endpoint | Description |
 | --- | --- |
-| `POST /api/intake` | Accept intake data, normalize time, score opportunity, and write provenance ledger entries |
+| `POST /api/intake` | Normalize intake, detect contradictions, score opportunity, and write provenance ledger entries |
 | `GET /api/ontology` | Return ontology version and runtime invariants |
 | `GET /api/ledger/integrity` | Check the in-memory ledger hash chain |
-| `GET /api/ledger/subject/:subjectId` | Return the complete ledger history for a subject |
-| `GET /api/ledger/provenance/:entryId` | Return the provenance chain for a ledger entry |
+| `GET /api/ledger/subject/:subjectId` | Return complete subject ledger history |
+| `GET /api/ledger/provenance/:entryId` | Return provenance chain for a ledger entry |
 | `GET /api/compliance/:subjectId/gate` | Return current compliance gate state |
 | `POST /api/compliance/:subjectId/review` | Submit human compliance-review facts |
-| `POST /api/compliance/:subjectId/activate` | Attempt activation; blocked unless the gate is eligible |
-| `POST /api/compliance/:subjectId/parties` | Register a role-based party record |
-| `GET /api/compliance/:subjectId/parties` | Return parties associated with a subject |
-| `POST /api/compliance/parties/:partyId/advance` | Advance a party one verification stage with supporting evidence references |
+| `POST /api/compliance/:subjectId/activate` | Attempt activation; blocked unless eligible |
+| `POST /api/compliance/:subjectId/parties` | Register a role-based party |
+| `GET /api/compliance/:subjectId/parties` | Return parties for a subject |
+| `POST /api/compliance/parties/:partyId/advance` | Advance a party one stage with evidence references |
+| `POST /api/contradictions/subject/:subjectId/detect` | Detect contradictions for supplied evidence |
+| `GET /api/contradictions/subject/:subjectId` | Return contradictions for a subject |
+| `GET /api/contradictions/subject/:subjectId/counts` | Return scorer-ready contradiction counts |
+| `POST /api/contradictions/:contradictionId/resolve` | Resolve a contradiction with analyst and evidence references |
 
 ---
 
@@ -327,31 +365,31 @@ Client / Intake Source
 TypeScript / Express API
 server/index.ts
         |
-        +------------------------------+
-        |                              |
-        v                              v
-Intake / Triage                  Compliance Gate
-server/ai/triage.ts              server/compliance/gate.ts
-        |                              |
-        v                              v
-Canonical COS Engine             Contact Eligibility
-server/ai/scoring.ts             Party Resolution Ladder
-        |                              |
-        +---------------+--------------+
-                        |
-                        v
-              G-CCI Ontology Runtime
-              server/ontology/model.ts
-                        |
-                        v
-              Immutable Decision Ledger
-              server/ontology/ledger.ts
-                        |
-                        v
-              Provenance / Audit APIs
+        +----------------------+----------------------+
+        |                      |                      |
+        v                      v                      v
+Intake / Triage       Contradiction Engine      Compliance Gate
+server/ai/triage.ts   server/ai/contradictions.ts server/compliance/gate.ts
+        |                      |                      |
+        +----------+-----------+                      |
+                   |                                  |
+                   v                                  v
+          Canonical COS Engine                Contact Eligibility
+          server/ai/scoring.ts                Party Resolution
+                   |                                  |
+                   +----------------+-----------------+
+                                    |
+                                    v
+                          G-CCI Ontology Runtime
+                          server/ontology/model.ts
+                                    |
+                                    v
+                          Immutable Decision Ledger
+                          server/ontology/ledger.ts
+                                    |
+                                    v
+                          Provenance / Audit APIs
 ```
-
-The formal RDF/OWL/SHACL ontology lives under `ontology/` and is the semantic contract the runtime is being aligned to.
 
 ---
 
@@ -365,6 +403,7 @@ g-cci-ai-intake-mvp/
 |   +-- ai/
 |   |   +-- scoring.ts
 |   |   +-- triage.ts
+|   |   +-- contradictions.ts
 |   +-- compliance/
 |   |   +-- gate.ts
 |   +-- ontology/
@@ -396,6 +435,12 @@ g-cci-ai-intake-mvp/
 
 - canonical TypeScript Case Opportunity Score formula
 - Tier A/B/C/D classification
+- automatic contradiction detection from evidence attributes
+- severity-aware contradiction classification
+- contradiction-to-scorer integration
+- unresolved high-severity contradiction forcing Tier C
+- analyst contradiction resolution with evidence references
+- contradiction detection and resolution ledger entries
 - uncertainty penalty derived from contradiction counts
 - separate event-correlation confidence
 - separate causal-relationship confidence
@@ -407,7 +452,7 @@ g-cci-ai-intake-mvp/
 - SHACL validation package
 - provenance-aware append-only ledger interface
 - hash-linked ledger sequence
-- intake -> temporal -> scoring provenance chain
+- intake -> temporal -> contradiction -> scoring provenance chain
 - ontology metadata endpoint
 - ledger integrity endpoint
 - provenance-chain endpoint
@@ -419,9 +464,7 @@ g-cci-ai-intake-mvp/
 
 ## Still In Progress
 
-The following capabilities are not yet fully load-bearing in the TypeScript runtime:
-
-- automatic contradiction detection from evidence attributes
+- tolerance-aware and semantic contradiction comparison
 - full hypothesis engine with competing explanations
 - human adjudication endpoints for hypotheses
 - evidence-gap / expected-information-gain engine
@@ -444,21 +487,9 @@ The following capabilities are not yet fully load-bearing in the TypeScript runt
 
 # Local Development
 
-Install dependencies:
-
 ```bash
 npm install
-```
-
-Run the TypeScript compiler check:
-
-```bash
 npm run build
-```
-
-Start the server:
-
-```bash
 npm run server
 ```
 
@@ -479,12 +510,6 @@ python scripts/validate_ontology.py
 
 # Product Design Principle
 
-G-CCI is not intended to be a list broker or a single black-box lead score.
-
-It is being built as an explainable case-discovery and litigation-intelligence system where every material conclusion should be reproducible from evidence and provenance.
-
-The platform's core decision boundary is:
-
 ```text
 Event Correlation
         !=
@@ -497,24 +522,23 @@ Case Opportunity
 Contact Eligibility
 ```
 
-That separation protects analytical integrity, reduces false attribution, and prevents a commercially attractive case from silently becoming an unauthorized outreach decision.
+G-CCI is not intended to be a list broker or a single black-box lead score. It is being built as an explainable case-discovery and litigation-intelligence system where material conclusions are reproducible from evidence and provenance.
 
 ---
 
 # Strategic Vision
 
-G-CCI is intended to become the semantic and analytical layer between raw transportation-event data and attorney decision-making.
-
 The long-term platform should be capable of:
 
 - discovering potentially valuable crash events
-- correlating fragmented reports across multiple data sources
+- correlating fragmented reports across multiple sources
 - reconstructing event timelines
 - identifying possible causal chains
-- surfacing contradictions and evidence gaps
+- automatically surfacing contradictions
+- ranking evidence gaps by expected information gain
 - resolving vehicles, carriers, and parties through evidence-backed workflows
 - prioritizing high-value trucking and severe-injury matters
-- explaining every score and recommendation
+- explaining scores and recommendations
 - preserving provenance and decision history
 - enforcing compliance before outreach or activation
 - generating litigation-ready intelligence for attorney review
@@ -523,7 +547,7 @@ The long-term platform should be capable of:
 
 # Important Disclaimer
 
-This repository is currently an MVP/prototype. Synthetic and demonstration data may be used. Illustrative scoring weights and confidence formulas are not outcome-calibrated, and the system is not legal advice.
+This repository is currently an MVP/prototype. Synthetic and demonstration data may be used. Illustrative scoring weights, contradiction severities, and confidence formulas are not outcome-calibrated, and the system is not legal advice.
 
 Compliance, privacy, solicitation, DPPA, open-records, evidentiary, and professional-responsibility decisions must be reviewed and configured with qualified counsel before production use.
 
