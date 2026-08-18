@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, feature/gcci-ontology-ledger-integration]
 
 jobs:
   typescript-build:
@@ -16,6 +16,20 @@ jobs:
       - name: Install Node dependencies
         run: npm install
       - name: TypeScript build
+        run: npm run build
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source branch
+        run: |
+          REF="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          git clone --depth 1 --branch "${REF}" "https://github.com/${GITHUB_REPOSITORY}.git" .
+      - name: Install frontend dependencies
+        working-directory: frontend-react
+        run: npm install
+      - name: Build React dashboard
+        working-directory: frontend-react
         run: npm run build
 
   ontology-validation:
