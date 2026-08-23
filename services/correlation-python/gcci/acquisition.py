@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,6 +48,19 @@ async def build_acquisition_tasks_for_score(
     events: list[NormalizedEvent],
 ) -> list[EvidenceAcquisitionTaskRow]:
     hypothesis = _hypothesis_from_payload(hypothesis_payload)
+
+    # Only the newest scored revision should contribute OPEN work. Historical tasks
+    # stay persisted for auditability but are not actionable after supersession.
+    await session.execute(
+        update(EvidenceAcquisitionTaskRow)
+        .where(
+            EvidenceAcquisitionTaskRow.hypothesis_id == score_result.hypothesis_id,
+            EvidenceAcquisitionTaskRow.revision < score_result.revision,
+            EvidenceAcquisitionTaskRow.status == "OPEN",
+        )
+        .values(status="SUPERSEDED", updated_at=utcnow())
+    )
+
     # Persistent camera inventory is not yet part of the PostGIS schema, so this
     # queue intentionally ranks gaps with no assumed camera availability. When a
     # camera inventory adapter is persisted, pass nearest-camera candidates here.
@@ -93,6 +106,7 @@ async def build_acquisition_tasks_for_score(
                     "acquisition_priority_score": priority,
                     "case_opportunity_score": score_result.score,
                     "tier": score_result.tier,
+                    "status": "OPEN",
                     "priority_model_version": ACQUISITION_PRIORITY_MODEL_VERSION,
                     "gap_json": gap.model_dump(mode="json"),
                     "updated_at": utcnow(),
