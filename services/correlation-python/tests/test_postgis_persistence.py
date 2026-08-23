@@ -7,6 +7,7 @@ from sqlalchemy import delete, select
 
 from gcci.database import (
     DecisionLedgerRow,
+    EvidenceAcquisitionTaskRow,
     EventRow,
     HypothesisEventRow,
     HypothesisRevisionRow,
@@ -51,6 +52,7 @@ async def clean_database():
         async with session.begin():
             for table in (
                 DecisionLedgerRow,
+                EvidenceAcquisitionTaskRow,
                 ScoreResultRow,
                 ScoreJobRow,
                 HypothesisEventRow,
@@ -147,7 +149,7 @@ async def test_new_source_record_revises_existing_incident_hypothesis_and_queues
 
 
 @pytest.mark.asyncio
-async def test_material_revisions_are_scored_by_canonical_typescript_service():
+async def test_material_revisions_are_scored_and_create_current_acquisition_queue():
     hypothesis_id = await _create_two_revision_hypothesis()
 
     claimed = await claim_score_jobs(10)
@@ -177,6 +179,29 @@ async def test_material_revisions_are_scored_by_canonical_typescript_service():
         assert all(row.tier in {"A", "B", "C", "D"} for row in results)
         assert all(row.model_version == "gcci-cos-v1.0-consolidated-ts-port" for row in results)
 
+        tasks = (
+            await session.execute(
+                select(EvidenceAcquisitionTaskRow)
+                .where(EvidenceAcquisitionTaskRow.hypothesis_id == hypothesis_id)
+                .order_by(
+                    EvidenceAcquisitionTaskRow.revision,
+                    EvidenceAcquisitionTaskRow.acquisition_priority_score.desc(),
+                )
+            )
+        ).scalars().all()
+        assert tasks
+        revision_one = [task for task in tasks if task.revision == 1]
+        revision_two = [task for task in tasks if task.revision == 2]
+        assert revision_one and revision_two
+        assert all(task.status == "SUPERSEDED" for task in revision_one)
+        assert all(task.status == "OPEN" for task in revision_two)
+        assert all(0 <= task.acquisition_priority_score <= 1 for task in tasks)
+        assert revision_two == sorted(
+            revision_two,
+            key=lambda task: task.acquisition_priority_score,
+            reverse=True,
+        )
+
         score_entries = (
             await session.execute(
                 select(DecisionLedgerRow)
@@ -190,6 +215,17 @@ async def test_material_revisions_are_scored_by_canonical_typescript_service():
         assert len(score_entries) == 2
         assert score_entries[-1].supersedes_entry_id == score_entries[0].id
         assert score_entries[-1].input_entry_ids_json
+
+        acquisition_entries = (
+            await session.execute(
+                select(DecisionLedgerRow).where(
+                    DecisionLedgerRow.subject_id == hypothesis_id,
+                    DecisionLedgerRow.entry_type == "EvidenceAcquisitionPriority",
+                )
+            )
+        ).scalars().all()
+        assert acquisition_entries
+        assert all(entry.input_entry_ids_json for entry in acquisition_entries)
 
         valid, error = await verify_ledger_chain(session)
         assert valid, error
