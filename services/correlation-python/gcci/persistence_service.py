@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .camera_repository import refresh_hypothesis_camera_candidates
 from .config import Settings, settings
 from .correlation import build_incident_hypotheses
 from .database import DecisionLedgerRow, EventRow, utcnow
@@ -173,6 +174,16 @@ class PersistentCorrelationService:
                 model_version=seed.model_version,
                 input_entry_ids=[ledger_entry.id],
             )
+
+        # Recompute the durable camera candidate set on every hypothesis revision.
+        # This is an evidence-discovery operation only: camera proximity is never
+        # promoted into causation, party attribution, liability, or outreach status.
+        await refresh_hypothesis_camera_candidates(
+            session,
+            hypothesis_row.id,
+            cfg=self.cfg,
+            input_entry_ids=[ledger_entry.id],
+        )
 
         # Score only material revisions. The outbox is durable and independent of
         # scorer availability; a TypeScript scorer outage does not roll back correlation.
