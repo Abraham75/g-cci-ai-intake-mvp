@@ -115,6 +115,45 @@ class HypothesisEventRow(Base):
     event: Mapped[EventRow] = relationship(back_populates="hypothesis_links")
 
 
+class ScoreJobRow(Base):
+    __tablename__ = "score_jobs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: str(uuid4()))
+    hypothesis_id: Mapped[str] = mapped_column(ForeignKey("incident_hypotheses.id", ondelete="CASCADE"), nullable=False, index=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    score_input_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    materiality_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="PENDING", nullable=False, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("hypothesis_id", "revision", name="uq_score_job_hypothesis_revision"),
+        Index("ix_score_jobs_ready", "status", "next_attempt_at"),
+    )
+
+
+class ScoreResultRow(Base):
+    __tablename__ = "score_results"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: str(uuid4()))
+    hypothesis_id: Mapped[str] = mapped_column(ForeignKey("incident_hypotheses.id", ondelete="CASCADE"), nullable=False, index=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    tier: Mapped[str] = mapped_column(String(1), nullable=False, index=True)
+    model_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    result_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    scored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("hypothesis_id", "revision", name="uq_score_result_hypothesis_revision"),
+        Index("ix_score_results_hypothesis_scored", "hypothesis_id", "scored_at"),
+    )
+
+
 class DecisionLedgerRow(Base):
     __tablename__ = "decision_ledger"
 
