@@ -46,6 +46,22 @@ jobs:
 
   python-correlation-service:
     runs-on: ubuntu-latest
+    services:
+      postgis:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: gcci
+          POSTGRES_USER: gcci
+          POSTGRES_PASSWORD: gcci_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gcci -d gcci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      GCCI_DATABASE_URL: postgresql+asyncpg://gcci:gcci_ci@localhost:5432/gcci
     defaults:
       run:
         working-directory: services/correlation-python
@@ -59,6 +75,10 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip
           python3 -m pip install -e ".[dev]"
+      - name: Apply PostGIS schema
+        env:
+          PGPASSWORD: gcci_ci
+        run: psql -h localhost -U gcci -d gcci -f migrations/001_postgis_persistence.sql
       - name: Ruff
         run: ruff check gcci tests
       - name: Pytest
