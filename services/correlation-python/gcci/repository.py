@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .config import Settings, settings
 from .database import EventRow, HypothesisEventRow, HypothesisRevisionRow, HypothesisRow, utcnow
 from .models import GeoPoint, IncidentHypothesis, NormalizedEvent, Provenance, SourceKind
+from .utils import stable_hash
 
 
 HYPOTHESIS_MATCH_LOCK_KEY = 874222
@@ -68,10 +69,16 @@ def event_row_to_model(row: EventRow) -> NormalizedEvent:
     )
 
 
-async def upsert_event(session: AsyncSession, event: NormalizedEvent) -> tuple[EventRow, bool]:
+async def upsert_event(
+    session: AsyncSession, event: NormalizedEvent
+) -> tuple[EventRow, bool, bool]:
     now = utcnow()
     existing = await session.get(EventRow, event.id)
     is_new = existing is None
+    source_hash = event.provenance.raw_sha256 or stable_hash(
+        event.raw if event.raw else event.model_dump(mode="json")
+    )
+    changed = is_new or existing.raw_sha256 != source_hash
 
     values = {
         "id": event.id,
@@ -79,7 +86,7 @@ async def upsert_event(session: AsyncSession, event: NormalizedEvent) -> tuple[E
         "source_system": event.provenance.source_system,
         "source_record_id": event.provenance.source_record_id,
         "source_url": event.provenance.source_url,
-        "raw_sha256": event.provenance.raw_sha256,
+        "raw_sha256": source_hash,
         "observed_at": event.observed_at,
         "reported_at": event.reported_at,
         "updated_at": event.updated_at,
@@ -108,7 +115,7 @@ async def upsert_event(session: AsyncSession, event: NormalizedEvent) -> tuple[E
         set_={k: v for k, v in values.items() if k != "id"},
     ).returning(EventRow)
     row = (await session.execute(stmt)).scalar_one()
-    return row, is_new
+    return row, is_new, changed
 
 
 async def candidate_events_for(
@@ -146,13 +153,22 @@ async def candidate_events_for(
     return list(rows)
 
 
+async def events_for_hypothesis(session: AsyncSession, hypothesis_id: str) -> list[EventRow]:
+    rows = (
+        await session.execute(
+            select(EventRow)
+            .join(HypothesisEventRow, HypothesisEventRow.event_id == EventRow.id)
+            .where(HypothesisEventRow.hypothesis_id == hypothesis_id)
+        )
+    ).scalars().all()
+    return list(rows)
+
+
 async def find_matching_hypothesis(
     session: AsyncSession,
     hypothesis: IncidentHypothesis,
     cfg: Settings = settings,
 ) -> HypothesisRow | None:
-    # Serializes create-or-revise selection so concurrent feed arrivals cannot
-    # create parallel hypotheses for the same spatiotemporal incident window.
     await session.execute(
         text("SELECT pg_advisory_xact_lock(:key)"), {"key": HYPOTHESIS_MATCH_LOCK_KEY}
     )
