@@ -4,13 +4,14 @@ from datetime import timedelta
 from uuid import uuid4
 
 from geoalchemy2.elements import WKTElement
+from geoalchemy2.shape import to_shape
 from sqlalchemy import and_, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import Settings, settings
 from .database import EventRow, HypothesisEventRow, HypothesisRevisionRow, HypothesisRow, utcnow
-from .models import GeoPoint, IncidentHypothesis, NormalizedEvent
+from .models import GeoPoint, IncidentHypothesis, NormalizedEvent, Provenance, SourceKind
 
 
 def _point_wkt(point: GeoPoint | None) -> WKTElement | None:
@@ -21,6 +22,43 @@ def _point_wkt(point: GeoPoint | None) -> WKTElement | None:
 
 def _event_time(event: NormalizedEvent):
     return event.reported_at or event.updated_at or event.observed_at
+
+
+def event_row_to_model(row: EventRow) -> NormalizedEvent:
+    point = None
+    if row.geom is not None:
+        shape = to_shape(row.geom)
+        point = GeoPoint(latitude=shape.y, longitude=shape.x)
+
+    return NormalizedEvent(
+        id=row.id,
+        source_kind=SourceKind(row.source_kind),
+        observed_at=row.observed_at,
+        reported_at=row.reported_at,
+        updated_at=row.updated_at,
+        point=point,
+        roadway=row.roadway,
+        direction=row.direction,
+        location_text=row.location_text,
+        event_type=row.event_type,
+        description=row.description,
+        lanes_affected=row.lanes_affected,
+        commercial_vehicle_hint=row.commercial_vehicle_hint,
+        injury_hint=row.injury_hint,
+        fatality_hint=row.fatality_hint,
+        closure_hint=row.closure_hint,
+        stalled_vehicle_hint=row.stalled_vehicle_hint,
+        debris_hint=row.debris_hint,
+        wheel_off_hint=row.wheel_off_hint,
+        attributes=row.attributes_json or {},
+        provenance=Provenance(
+            source_system=row.source_system,
+            source_record_id=row.source_record_id,
+            source_url=row.source_url,
+            raw_sha256=row.raw_sha256,
+        ),
+        raw=row.raw_json or {},
+    )
 
 
 async def upsert_event(session: AsyncSession, event: NormalizedEvent) -> tuple[EventRow, bool]:
@@ -105,8 +143,10 @@ async def find_matching_hypothesis(
 ) -> HypothesisRow | None:
     predicates = [
         HypothesisRow.active.is_(True),
-        HypothesisRow.end_time >= hypothesis.start_time - timedelta(seconds=cfg.candidate_time_window_seconds),
-        HypothesisRow.start_time <= hypothesis.end_time + timedelta(seconds=cfg.candidate_time_window_seconds),
+        HypothesisRow.end_time
+        >= hypothesis.start_time - timedelta(seconds=cfg.candidate_time_window_seconds),
+        HypothesisRow.start_time
+        <= hypothesis.end_time + timedelta(seconds=cfg.candidate_time_window_seconds),
     ]
 
     if hypothesis.roadway:
