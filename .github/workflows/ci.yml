@@ -78,7 +78,11 @@ jobs:
       - name: Apply PostGIS schema
         env:
           PGPASSWORD: gcci_ci
-        run: psql -h localhost -U gcci -d gcci -f migrations/001_postgis_persistence.sql
+        run: |
+          for migration in migrations/*.sql; do
+            echo "Applying ${migration}"
+            psql -v ON_ERROR_STOP=1 -h localhost -U gcci -d gcci -f "${migration}"
+          done
       - name: Ruff
         run: ruff check gcci tests
       - name: Pytest
