@@ -16,6 +16,12 @@ from .repository import (
     persist_hypothesis_revision,
     upsert_event,
 )
+from .scoring_bridge import (
+    derive_score_input,
+    enqueue_score_job,
+    materiality_decision,
+    previous_revision_and_score_input,
+)
 
 
 async def _latest_evidence_ledger_id(session: AsyncSession, event_id: str) -> str | None:
@@ -165,6 +171,49 @@ class PersistentCorrelationService:
                 produced_by="correlation.hypothesisEngine",
                 source_system="PostgreSQL/PostGIS",
                 model_version=seed.model_version,
+                input_entry_ids=[ledger_entry.id],
+            )
+
+        # Score only material revisions. The outbox is durable and independent of
+        # scorer availability; a TypeScript scorer outage does not roll back correlation.
+        active_rows = await events_for_hypothesis(session, hypothesis_row.id)
+        active_events = [event_row_to_model(row) for row in active_rows]
+        score_input, derivation = derive_score_input(seed, active_events)
+        previous_revision, previous_score_input = await previous_revision_and_score_input(
+            session, hypothesis_row.id, revision_row.revision
+        )
+        materiality = materiality_decision(
+            current_revision=revision_row,
+            previous_revision=previous_revision,
+            current_score_input=score_input,
+            previous_score_input=previous_score_input,
+            cfg=self.cfg,
+        )
+        score_job = await enqueue_score_job(
+            session,
+            hypothesis_id=hypothesis_row.id,
+            revision=revision_row.revision,
+            score_input=score_input,
+            materiality=materiality,
+            derivation=derivation,
+        )
+
+        if score_job is not None:
+            await append_ledger_entry(
+                session,
+                entry_type="ScoreRequest",
+                subject_id=hypothesis_row.id,
+                payload={
+                    "action": "canonical-score-enqueued",
+                    "hypothesisRevision": revision_row.revision,
+                    "scoreJobId": score_job.id,
+                    "materiality": materiality.model_dump(mode="json"),
+                    "scoreInput": score_input,
+                    "derivation": derivation,
+                },
+                produced_by="correlation.scoreBridge",
+                source_system="PostgreSQL/PostGIS",
+                model_version=derivation["version"],
                 input_entry_ids=[ledger_entry.id],
             )
 
