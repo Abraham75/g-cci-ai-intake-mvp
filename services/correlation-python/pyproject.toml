@@ -1,7 +1,7 @@
 [project]
 name = "gcci-cross-source-correlation"
-version = "1.1.0"
-description = "G-CCI cross-source transportation-event correlation, PostGIS persistence, and evidence-development service"
+version = "1.2.0"
+description = "G-CCI cross-source transportation-event correlation, PostGIS persistence, canonical scoring bridge, and evidence-development service"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.116,<1",
@@ -12,6 +12,7 @@ dependencies = [
   "asyncpg>=0.30,<1",
   "geoalchemy2>=0.18,<1",
   "shapely>=2.1,<3",
+  "httpx>=0.28,<1",
 ]
 
 [project.optional-dependencies]
