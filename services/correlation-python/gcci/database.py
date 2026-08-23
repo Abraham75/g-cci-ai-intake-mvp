@@ -154,6 +154,32 @@ class ScoreResultRow(Base):
     )
 
 
+class EvidenceAcquisitionTaskRow(Base):
+    __tablename__ = "evidence_acquisition_tasks"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: str(uuid4()))
+    hypothesis_id: Mapped[str] = mapped_column(ForeignKey("incident_hypotheses.id", ondelete="CASCADE"), nullable=False, index=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    score_result_id: Mapped[str] = mapped_column(ForeignKey("score_results.id", ondelete="CASCADE"), nullable=False)
+    evidence_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    recommended_action: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_information_gain: Mapped[float] = mapped_column(Float, nullable=False)
+    acquisition_priority_score: Mapped[float] = mapped_column(Float, nullable=False, index=True)
+    case_opportunity_score: Mapped[float] = mapped_column(Float, nullable=False)
+    tier: Mapped[str] = mapped_column(String(1), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="OPEN", nullable=False, index=True)
+    priority_model_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    gap_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("hypothesis_id", "revision", "evidence_type", name="uq_acquisition_task_revision_type"),
+        Index("ix_acquisition_tasks_open_priority", "status", "acquisition_priority_score"),
+    )
+
+
 class DecisionLedgerRow(Base):
     __tablename__ = "decision_ledger"
 
