@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from typing import Iterable
-
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .database import EvidenceAcquisitionTaskRow, ScoreResultRow, utcnow
 from .evidence_gaps import rank_evidence_gaps
-from .models import EvidenceGap, IncidentHypothesis, NormalizedEvent
+from .models import IncidentHypothesis, NormalizedEvent
 
 
 ACQUISITION_PRIORITY_MODEL_VERSION = "gcci-evidence-acquisition-priority-v1.0.0"
