@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 from typing import Any
+from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .database import DecisionLedgerRow
@@ -57,16 +58,13 @@ async def append_ledger_entry(
     input_entry_ids: list[str] | None = None,
     supersedes_entry_id: str | None = None,
 ) -> DecisionLedgerRow:
-    """Append one ledger row under a PostgreSQL advisory transaction lock.
+    """Append one immutable ledger row under a transaction-scoped advisory lock.
 
-    The global lock serializes hash-chain append operations across worker processes.
-    The caller owns the surrounding database transaction.
+    The advisory lock serializes the global SHA-256 chain across multiple API and
+    worker processes. The caller owns the database transaction; rollback removes
+    both the business mutation and its ledger append atomically.
     """
-    await session.execute(select(1).where(True))
-    await session.execute(
-        __import__("sqlalchemy").text("SELECT pg_advisory_xact_lock(:key)"),
-        {"key": LEDGER_LOCK_KEY},
-    )
+    await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LEDGER_LOCK_KEY})
 
     previous = (
         await session.execute(
@@ -74,9 +72,7 @@ async def append_ledger_entry(
         )
     ).scalar_one_or_none()
 
-    import uuid
-
-    entry_id = str(uuid.uuid4())
+    entry_id = str(uuid4())
     input_ids = input_entry_ids or []
     previous_hash = previous.entry_hash if previous else None
     digest = _entry_hash(
@@ -110,7 +106,9 @@ async def append_ledger_entry(
     return row
 
 
-async def ledger_entries_for_subject(session: AsyncSession, subject_id: str) -> list[DecisionLedgerRow]:
+async def ledger_entries_for_subject(
+    session: AsyncSession, subject_id: str
+) -> list[DecisionLedgerRow]:
     rows = (
         await session.execute(
             select(DecisionLedgerRow)
@@ -130,6 +128,7 @@ async def verify_ledger_chain(session: AsyncSession) -> tuple[bool, str | None]:
     for row in rows:
         if row.previous_hash != previous_hash:
             return False, f"Broken previous_hash at sequence {row.sequence_no}"
+
         expected = _entry_hash(
             entry_id=row.id,
             entry_type=row.entry_type,
@@ -145,4 +144,5 @@ async def verify_ledger_chain(session: AsyncSession) -> tuple[bool, str | None]:
         if expected != row.entry_hash:
             return False, f"Hash mismatch at sequence {row.sequence_no}"
         previous_hash = row.entry_hash
+
     return True, None
