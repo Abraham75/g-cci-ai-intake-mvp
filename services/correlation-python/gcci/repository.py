@@ -126,7 +126,6 @@ async def candidate_events_for(
     center = _event_time(event)
     low = center - timedelta(seconds=cfg.candidate_time_window_seconds)
     high = center + timedelta(seconds=cfg.candidate_time_window_seconds)
-
     predicates = [
         EventRow.id != event.id,
         func.coalesce(EventRow.reported_at, EventRow.updated_at, EventRow.observed_at).between(low, high),
@@ -134,18 +133,11 @@ async def candidate_events_for(
 
     if event.roadway:
         predicates.append(EventRow.roadway == event.roadway)
-
     if event.point:
-        predicates.extend(
-            [
-                EventRow.geom.is_not(None),
-                func.ST_DWithin(
-                    EventRow.geom,
-                    _point_geography(event.point),
-                    cfg.candidate_radius_meters,
-                ),
-            ]
-        )
+        predicates.extend([
+            EventRow.geom.is_not(None),
+            func.ST_DWithin(EventRow.geom, _point_geography(event.point), cfg.candidate_radius_meters),
+        ])
 
     rows = (
         await session.execute(select(EventRow).where(and_(*predicates)).limit(1000))
@@ -158,7 +150,10 @@ async def events_for_hypothesis(session: AsyncSession, hypothesis_id: str) -> li
         await session.execute(
             select(EventRow)
             .join(HypothesisEventRow, HypothesisEventRow.event_id == EventRow.id)
-            .where(HypothesisEventRow.hypothesis_id == hypothesis_id)
+            .where(
+                HypothesisEventRow.hypothesis_id == hypothesis_id,
+                HypothesisEventRow.active.is_(True),
+            )
         )
     ).scalars().all()
     return list(rows)
@@ -172,29 +167,22 @@ async def find_matching_hypothesis(
     await session.execute(
         text("SELECT pg_advisory_xact_lock(:key)"), {"key": HYPOTHESIS_MATCH_LOCK_KEY}
     )
-
     predicates = [
         HypothesisRow.active.is_(True),
-        HypothesisRow.end_time
-        >= hypothesis.start_time - timedelta(seconds=cfg.candidate_time_window_seconds),
-        HypothesisRow.start_time
-        <= hypothesis.end_time + timedelta(seconds=cfg.candidate_time_window_seconds),
+        HypothesisRow.end_time >= hypothesis.start_time - timedelta(seconds=cfg.candidate_time_window_seconds),
+        HypothesisRow.start_time <= hypothesis.end_time + timedelta(seconds=cfg.candidate_time_window_seconds),
     ]
-
     if hypothesis.roadway:
         predicates.append(HypothesisRow.roadway == hypothesis.roadway)
-
     if hypothesis.centroid:
-        predicates.extend(
-            [
-                HypothesisRow.centroid.is_not(None),
-                func.ST_DWithin(
-                    HypothesisRow.centroid,
-                    _point_geography(hypothesis.centroid),
-                    cfg.candidate_radius_meters,
-                ),
-            ]
-        )
+        predicates.extend([
+            HypothesisRow.centroid.is_not(None),
+            func.ST_DWithin(
+                HypothesisRow.centroid,
+                _point_geography(hypothesis.centroid),
+                cfg.candidate_radius_meters,
+            ),
+        ])
 
     candidates = (
         await session.execute(
@@ -211,20 +199,20 @@ async def find_matching_hypothesis(
         linked = (
             await session.execute(
                 select(HypothesisEventRow.event_id).where(
-                    HypothesisEventRow.hypothesis_id == candidate.id
+                    HypothesisEventRow.hypothesis_id == candidate.id,
+                    HypothesisEventRow.active.is_(True),
                 )
             )
         ).scalars().all()
         if new_members.intersection(linked):
             return candidate
-
     return candidates[0] if len(candidates) == 1 else None
 
 
 async def persist_hypothesis_revision(
     session: AsyncSession,
     hypothesis: IncidentHypothesis,
-) -> tuple[HypothesisRow, HypothesisRevisionRow, bool, list[str]]:
+) -> tuple[HypothesisRow, HypothesisRevisionRow, bool, list[str], list[str]]:
     current = await find_matching_hypothesis(session, hypothesis)
     created = current is None
 
@@ -242,31 +230,31 @@ async def persist_hypothesis_revision(
         session.add(current)
         await session.flush()
 
-    existing_ids = set(
+    existing_links = list(
         (
             await session.execute(
-                select(HypothesisEventRow.event_id).where(
-                    HypothesisEventRow.hypothesis_id == current.id
-                )
+                select(HypothesisEventRow).where(HypothesisEventRow.hypothesis_id == current.id)
             )
         ).scalars().all()
     )
-    all_member_ids = sorted(existing_ids.union(hypothesis.member_event_ids))
-    newly_linked = sorted(set(hypothesis.member_event_ids) - existing_ids)
+    active_existing = {link.event_id for link in existing_links if link.active}
+    current_members = set(hypothesis.member_event_ids)
+    newly_linked = sorted(current_members - active_existing)
+    removed_links = sorted(active_existing - current_members)
 
     revision_number = current.current_revision + 1
     current.current_revision = revision_number
-    current.start_time = min(current.start_time, hypothesis.start_time)
-    current.end_time = max(current.end_time, hypothesis.end_time)
-    current.centroid = _point_wkt(hypothesis.centroid) if hypothesis.centroid else current.centroid
-    current.roadway = hypothesis.roadway or current.roadway
-    current.direction = hypothesis.direction or current.direction
+    current.start_time = hypothesis.start_time
+    current.end_time = hypothesis.end_time
+    current.centroid = _point_wkt(hypothesis.centroid)
+    current.roadway = hypothesis.roadway
+    current.direction = hypothesis.direction
     current.updated_at = utcnow()
 
     payload = hypothesis.model_dump(mode="json")
     payload["id"] = current.id
     payload["revision"] = revision_number
-    payload["member_event_ids"] = all_member_ids
+    payload["member_event_ids"] = sorted(current_members)
 
     revision = HypothesisRevisionRow(
         hypothesis_id=current.id,
@@ -277,19 +265,30 @@ async def persist_hypothesis_revision(
         model_version=hypothesis.model_version,
         rationale_json=hypothesis.rationale,
         contradictions_json=hypothesis.contradictions,
-        member_event_ids_json=all_member_ids,
+        member_event_ids_json=sorted(current_members),
         payload_json=payload,
     )
     session.add(revision)
 
-    for event_id in newly_linked:
-        session.add(
-            HypothesisEventRow(
+    links_by_id = {link.event_id: link for link in existing_links}
+    for event_id in current_members:
+        link = links_by_id.get(event_id)
+        if link is None:
+            session.add(HypothesisEventRow(
                 hypothesis_id=current.id,
                 event_id=event_id,
                 first_linked_revision=revision_number,
-            )
-        )
+                last_evaluated_revision=revision_number,
+                active=True,
+            ))
+        else:
+            link.active = True
+            link.last_evaluated_revision = revision_number
+
+    for event_id in removed_links:
+        link = links_by_id[event_id]
+        link.active = False
+        link.last_evaluated_revision = revision_number
 
     await session.flush()
-    return current, revision, created, newly_linked
+    return current, revision, created, newly_linked, removed_links
