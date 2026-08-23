@@ -1,14 +1,21 @@
 import { Router, Request, Response } from "express";
 import { SOURCE_CATALOG, fetchLiveGeorgiaTraffic } from "../integrations/georgiaTraffic";
 import { fetchPublicGdotCameras } from "../integrations/georgiaCameras";
+import { fetchGemaWazeAlerts, GEMA_WAZE_SOURCE } from "../integrations/gema";
 import { ledgerOpportunitySignals, synthesizeOpportunitySignals } from "../ai/opportunitySignals";
 
 export const signalsRouter = Router();
 
+async function fetchAllLiveSources() {
+  const [trafficResults, gema] = await Promise.all([fetchLiveGeorgiaTraffic(), fetchGemaWazeAlerts()]);
+  return [...trafficResults, gema];
+}
+
 signalsRouter.get("/sources", (_req: Request, res: Response) => {
+  const allSources = [...SOURCE_CATALOG, GEMA_WAZE_SOURCE];
   res.json({
     generatedAt: new Date().toISOString(),
-    sources: SOURCE_CATALOG.map(({ url, ...source }) => ({ ...source, endpointConfigured: Boolean(url) })),
+    sources: allSources.map(({ url, ...source }) => ({ ...source, endpointConfigured: Boolean(url) })),
     policy: {
       subject: "incident opportunity signals",
       personIdentification: false,
@@ -19,7 +26,7 @@ signalsRouter.get("/sources", (_req: Request, res: Response) => {
 });
 
 signalsRouter.get("/live", async (_req: Request, res: Response) => {
-  const results = await fetchLiveGeorgiaTraffic();
+  const results = await fetchAllLiveSources();
   const events = results.flatMap((result) => result.records);
   const signals = synthesizeOpportunitySignals(events);
   res.json({
@@ -30,7 +37,7 @@ signalsRouter.get("/live", async (_req: Request, res: Response) => {
 });
 
 signalsRouter.post("/live/ledger", async (_req: Request, res: Response) => {
-  const results = await fetchLiveGeorgiaTraffic();
+  const results = await fetchAllLiveSources();
   const signals = synthesizeOpportunitySignals(results.flatMap((result) => result.records));
   ledgerOpportunitySignals(signals);
   res.status(201).json({ ledgered: signals.length, signals });
