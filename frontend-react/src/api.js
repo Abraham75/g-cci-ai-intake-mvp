@@ -2,8 +2,11 @@ const API_BASE = import.meta.env.VITE_GCCI_API_BASE || "http://127.0.0.1:3001";
 const CORRELATION_API_BASE =
   import.meta.env.VITE_GCCI_CORRELATION_API_BASE || "http://127.0.0.1:8000";
 
-async function request(base, path) {
-  const response = await fetch(`${base}${path}`);
+async function request(base, path, options = {}) {
+  const response = await fetch(`${base}${path}`, {
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
+  });
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`${response.status} ${response.statusText}: ${text}`);
@@ -33,4 +36,18 @@ export const gcciApi = {
   subjectLedger: (subjectId) =>
     request(CORRELATION_API_BASE, `/ledger/subject/${encodeURIComponent(subjectId)}`),
   persistentLedgerIntegrity: () => request(CORRELATION_API_BASE, "/ledger/integrity"),
+
+  // Persistent PostGIS camera intelligence.
+  cameraStatus: () => request(CORRELATION_API_BASE, "/cameras/status"),
+  hypothesisCameras: (hypothesisId, currentOnly = true) =>
+    request(
+      CORRELATION_API_BASE,
+      `/hypotheses/${encodeURIComponent(hypothesisId)}/cameras?current_only=${currentOnly ? "true" : "false"}`,
+    ),
+  refreshHypothesisCameras: (hypothesisId) =>
+    request(
+      CORRELATION_API_BASE,
+      `/hypotheses/${encodeURIComponent(hypothesisId)}/cameras/refresh`,
+      { method: "POST" },
+    ),
 };
