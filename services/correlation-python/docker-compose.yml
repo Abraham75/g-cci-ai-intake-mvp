@@ -9,7 +9,7 @@ services:
       - "5432:5432"
     volumes:
       - gcci_postgis_data:/var/lib/postgresql/data
-      - ./migrations/001_postgis_persistence.sql:/docker-entrypoint-initdb.d/001_postgis_persistence.sql:ro
+      - ./migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gcci -d gcci"]
       interval: 5s
