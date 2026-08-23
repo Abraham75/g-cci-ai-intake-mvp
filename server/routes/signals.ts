@@ -2,17 +2,23 @@ import { Router, Request, Response } from "express";
 import { SOURCE_CATALOG, fetchLiveGeorgiaTraffic } from "../integrations/georgiaTraffic";
 import { fetchPublicGdotCameras } from "../integrations/georgiaCameras";
 import { fetchGemaWazeAlerts, GEMA_WAZE_SOURCE } from "../integrations/gema";
+import { fetchGdot511Alerts, GDOT_511_ALERTS_SOURCE } from "../integrations/gdot511Alerts";
 import { ledgerOpportunitySignals, synthesizeOpportunitySignals } from "../ai/opportunitySignals";
 
 export const signalsRouter = Router();
 
 async function fetchAllLiveSources() {
-  const [trafficResults, gema] = await Promise.all([fetchLiveGeorgiaTraffic(), fetchGemaWazeAlerts()]);
-  return [...trafficResults, gema];
+  const [trafficResults, gema, alerts] = await Promise.all([
+    fetchLiveGeorgiaTraffic(),
+    fetchGemaWazeAlerts(),
+    fetchGdot511Alerts(),
+  ]);
+  return [...trafficResults, gema, alerts];
 }
 
 signalsRouter.get("/sources", (_req: Request, res: Response) => {
-  const allSources = [...SOURCE_CATALOG, GEMA_WAZE_SOURCE];
+  const byId = new Map([...SOURCE_CATALOG, GEMA_WAZE_SOURCE, GDOT_511_ALERTS_SOURCE].map((source) => [source.id, source]));
+  const allSources = [...byId.values()];
   res.json({
     generatedAt: new Date().toISOString(),
     sources: allSources.map(({ url, ...source }) => ({ ...source, endpointConfigured: Boolean(url) })),
