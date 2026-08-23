@@ -1,0 +1,63 @@
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: gcci
+      POSTGRES_USER: gcci
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gcci-dev-only}
+    ports:
+      - "5432:5432"
+    volumes:
+      - gcci_postgis_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gcci -d gcci"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  scorer:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.server
+    environment:
+      PORT: "3001"
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/api/ontology >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: .
+    environment:
+      GCCI_DATABASE_URL: postgresql+asyncpg://gcci:${POSTGRES_PASSWORD:-gcci-dev-only}@postgis:5432/gcci
+      GCCI_CANONICAL_SCORER_URL: http://scorer:3001/api/scoring/score
+    command: ["uvicorn", "gcci.api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgis:
+        condition: service_healthy
+      scorer:
+        condition: service_healthy
+
+  worker:
+    build: .
+    environment:
+      GCCI_DATABASE_URL: postgresql+asyncpg://gcci:${POSTGRES_PASSWORD:-gcci-dev-only}@postgis:5432/gcci
+      GCCI_CANONICAL_SCORER_URL: http://scorer:3001/api/scoring/score
+      GCCI_WORKER_POLL_SECONDS: "2"
+      GCCI_WORKER_BATCH_SIZE: "250"
+      GCCI_SCORING_WORKER_BATCH_SIZE: "100"
+    command: ["python", "-m", "gcci.worker"]
+    depends_on:
+      postgis:
+        condition: service_healthy
+      scorer:
+        condition: service_healthy
+
+volumes:
+  gcci_postgis_data:
