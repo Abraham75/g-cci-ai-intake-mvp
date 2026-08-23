@@ -1,6 +1,6 @@
 # G-CCI Cross-Source Correlation Service
 
-Python/FastAPI service for cross-source transportation-event correlation, durable PostgreSQL/PostGIS persistence, versioned `IncidentHypothesis` management, canonical G-CCI Case Opportunity scoring, nearest-camera discovery, expected-information-gain evidence-gap ranking, and append-only decision-ledger provenance.
+Python/FastAPI service for cross-source transportation-event correlation, durable PostgreSQL/PostGIS persistence, versioned `IncidentHypothesis` management, canonical G-CCI Case Opportunity scoring, nearest-camera discovery, expected-information-gain evidence-gap ranking, score-conditioned evidence acquisition prioritization, and append-only decision-ledger provenance.
 
 ## Runtime boundary
 
@@ -13,10 +13,11 @@ Event Correlation
 != Causal Relationship
 != Party Attribution
 != Case Opportunity
+!= Evidence Acquisition Priority
 != Contact Eligibility
 ```
 
-## Durable event -> score flow
+## Durable event -> score -> investigation flow
 
 ```text
 NormalizedEvent
@@ -60,6 +61,15 @@ Materiality evaluation
                          |
                          v
                     Tier A/B/C/D
+                         |
+                         v
+                Evidence-gap ranking
+                         |
+                         v
+             Evidence Acquisition Priority
+                         |
+                         +--> evidence_acquisition_tasks
+                         +--> EvidenceAcquisitionPriority ledger entries
 
 Contact eligibility remains outside this path and requires the separate compliance gate.
 ```
@@ -110,6 +120,35 @@ and the canonical tier thresholds:
 
 Score-input derivation is versioned separately as `gcci-score-input-derivation-v1.0.0`. Correlation confidence is never silently converted into liability or party attribution.
 
+## Evidence acquisition priority
+
+Evidence gaps are first ranked by expected information gain:
+
+```text
+EIG =
+P(evidence exists)
+* P(evidence resolves the question)
+* materiality
+* preservation urgency
+```
+
+The investigation queue then computes a separate Acquisition Priority Score:
+
+```text
+APS = EIG * (0.55 + 0.45 * COS) * TierMultiplier
+```
+
+Tier multipliers are currently:
+
+- A = `1.00`
+- B = `0.90`
+- C = `0.75`
+- D = `0.55`
+
+This is deliberately separate from COS. Case economics modulate investigation urgency; they do not erase evidentiary value. Contact eligibility is not an input.
+
+Only acquisition tasks tied to the newest completed score revision remain `OPEN`. Older revision tasks are preserved as `SUPERSEDED`, preventing stale evidence instructions from appearing in the attorney queue while retaining complete audit history.
+
 ## Database model
 
 PostgreSQL 16 + PostGIS stores:
@@ -120,6 +159,7 @@ PostgreSQL 16 + PostGIS stores:
 - `hypothesis_events` — version-aware supporting-evidence links
 - `score_jobs` — durable canonical-scoring outbox with lease/retry state
 - `score_results` — immutable score results by hypothesis revision
+- `evidence_acquisition_tasks` — versioned investigation queue derived from EIG + canonical COS
 - `decision_ledger` — append-only SHA-256 hash-linked evidentiary ledger
 
 The persistence path uses PostGIS `ST_DWithin` for spatial blocking and PostgreSQL advisory locks to serialize hypothesis create/revise selection and ledger hash-chain appends across multiple worker/API processes.
@@ -131,7 +171,7 @@ The persistence path uses PostGIS `ST_DWithin` for spatial blocking and PostgreS
 The worker performs two durable loops:
 
 1. correlation processing for records whose `correlation_processed_hash` is missing or differs from the current source hash;
-2. canonical scoring for material revisions queued in `score_jobs`.
+2. canonical scoring for material revisions queued in `score_jobs`, followed by acquisition-priority generation.
 
 Scoring jobs use `FOR UPDATE SKIP LOCKED`, a time-bounded `PROCESSING` lease, and exponential retry. A scorer/network outage does not roll back correlation or lose the score request.
 
@@ -144,6 +184,8 @@ Scoring jobs use `FOR UPDATE SKIP LOCKED`, a time-bounded `PROCESSING` lease, an
 - `GET /hypotheses/{id}/revisions` — complete hypothesis history
 - `GET /hypotheses/{id}/score` — latest canonical score plus pending-job state
 - `GET /hypotheses/{id}/scores` — canonical score history by revision
+- `GET /hypotheses/{id}/acquisition-tasks` — evidence-acquisition history for one hypothesis
+- `GET /acquisition-queue` — current cross-hypothesis OPEN investigation queue, highest priority first
 - `GET /ledger/subject/{id}` — auditable ledger history for a subject
 - `GET /ledger/integrity` — verify the persistent hash chain
 - `GET /health` — service health
@@ -198,22 +240,13 @@ npm run server
 - mechanism similarity
 - independent-source corroboration
 
-## Evidence-gap ranking
-
-Expected information gain is computed as:
-
-```text
-P(evidence exists)
-* P(evidence resolves the question)
-* materiality
-* preservation urgency
-```
+## Evidence-gap classes
 
 Current evidence classes include CCTV, CAD/911, crash reports, tow records, EDR, ELD/telematics, and FMCSA carrier enrichment.
 
 ## Ledger semantics
 
-The decision ledger is append-only by application contract. Hypothesis revisions use `supersedes_entry_id` to identify the prior machine conclusion without deleting or mutating it. Each supporting-evidence attachment/withdrawal is a separate assertion. Material score requests and canonical score results are separate ledger entries, preserving the exact revision and scoring input that produced each result.
+The decision ledger is append-only by application contract. Hypothesis revisions use `supersedes_entry_id` to identify the prior machine conclusion without deleting or mutating it. Each supporting-evidence attachment/withdrawal is a separate assertion. Material score requests, canonical score results, and acquisition-priority decisions are separate ledger entries, preserving the exact revision and scoring input that produced each result.
 
 Ledger rows are globally SHA-256 hash-linked, and a transaction-scoped PostgreSQL advisory lock serializes chain appends.
 
@@ -221,13 +254,14 @@ For production, the database role used by the application should receive `SELECT
 
 ## Remaining production hardening
 
+- persist the GDOT camera inventory in PostGIS so acquisition ranking can use live nearest-camera availability rather than a conservative no-camera assumption
 - authenticated service-to-service scoring requests / network policy
 - authenticated ingestion
 - managed secrets rather than local `.env` credentials
 - retry/dead-letter telemetry for upstream source adapters and canonical scorer
 - OpenTelemetry traces, metrics, and structured logs
 - database backups, PITR, and replication strategy
-- calibrated component-derivation rules from attorney-reviewed outcomes
+- calibrated component-derivation and acquisition-priority parameters from attorney-reviewed outcomes
 - calibrated correlation thresholds from labeled outcomes
-- runtime RDF/SHACL projection of persisted hypothesis and score revisions
+- runtime RDF/SHACL projection of persisted hypothesis, score, and acquisition revisions
 - migration from raw SQL bootstrap to Alembic once the schema stabilizes
