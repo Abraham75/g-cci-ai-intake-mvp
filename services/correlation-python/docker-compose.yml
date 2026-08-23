@@ -1,0 +1,42 @@
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: gcci
+      POSTGRES_USER: gcci
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gcci-dev-only}
+    ports:
+      - "5432:5432"
+    volumes:
+      - gcci_postgis_data:/var/lib/postgresql/data
+      - ./migrations/001_postgis_persistence.sql:/docker-entrypoint-initdb.d/001_postgis_persistence.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gcci -d gcci"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: .
+    environment:
+      GCCI_DATABASE_URL: postgresql+asyncpg://gcci:${POSTGRES_PASSWORD:-gcci-dev-only}@postgis:5432/gcci
+    command: ["uvicorn", "gcci.api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    environment:
+      GCCI_DATABASE_URL: postgresql+asyncpg://gcci:${POSTGRES_PASSWORD:-gcci-dev-only}@postgis:5432/gcci
+      GCCI_WORKER_POLL_SECONDS: "2"
+      GCCI_WORKER_BATCH_SIZE: "250"
+    command: ["python", "-m", "gcci.worker"]
+    depends_on:
+      postgis:
+        condition: service_healthy
+
+volumes:
+  gcci_postgis_data:
