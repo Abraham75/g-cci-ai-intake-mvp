@@ -43,3 +43,23 @@ jobs:
         run: python3 -m pip install --upgrade pip rdflib pyshacl
       - name: Parse RDF/OWL and run SHACL validation
         run: python3 scripts/validate_ontology.py
+
+  python-correlation-service:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/correlation-python
+    steps:
+      - name: Checkout source branch
+        working-directory: .
+        run: |
+          REF="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          git clone --depth 1 --branch "${REF}" "https://github.com/${GITHUB_REPOSITORY}.git" .
+      - name: Install Python service
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e ".[dev]"
+      - name: Ruff
+        run: ruff check gcci tests
+      - name: Pytest
+        run: pytest -q
