@@ -6,16 +6,20 @@ from datetime import timedelta
 
 from sqlalchemy import or_, select
 
+from .acquisition import ACQUISITION_PRIORITY_MODEL_VERSION, build_acquisition_tasks_for_score
 from .config import settings
-from .database import DecisionLedgerRow, EventRow, ScoreJobRow, SessionLocal, utcnow
+from .database import (
+    DecisionLedgerRow,
+    EventRow,
+    HypothesisRevisionRow,
+    ScoreJobRow,
+    SessionLocal,
+    utcnow,
+)
 from .ledger import append_ledger_entry
 from .persistence_service import PersistentCorrelationService
 from .repository import event_row_to_model
-from .scoring_bridge import (
-    CanonicalScorerClient,
-    next_retry_time,
-    persist_score_result,
-)
+from .scoring_bridge import CanonicalScorerClient, next_retry_time, persist_score_result
 
 
 log = logging.getLogger("gcci.correlation.worker")
@@ -54,11 +58,7 @@ async def process_event(event_row: EventRow) -> None:
 
 
 async def claim_score_jobs(limit: int) -> list[str]:
-    """Claim ready jobs with a time-bounded PROCESSING lease.
-
-    SKIP LOCKED allows multiple workers to claim different jobs safely. A worker
-    crash leaves the job reclaimable once next_attempt_at expires.
-    """
+    """Claim ready jobs with a time-bounded PROCESSING lease."""
     now = utcnow()
     lease_until = now + timedelta(seconds=settings.canonical_scorer_timeout_seconds + 30)
     async with SessionLocal() as session:
@@ -101,6 +101,25 @@ async def _score_request_ledger_id(session, job: ScoreJobRow) -> str | None:
         if entry.payload_json.get("scoreJobId") == job.id:
             return entry.id
     return None
+
+
+async def _revision_context(session, job: ScoreJobRow):
+    revision = (
+        await session.execute(
+            select(HypothesisRevisionRow).where(
+                HypothesisRevisionRow.hypothesis_id == job.hypothesis_id,
+                HypothesisRevisionRow.revision == job.revision,
+            )
+        )
+    ).scalar_one()
+    member_ids = list(revision.member_event_ids_json)
+    event_rows = []
+    if member_ids:
+        event_rows = (
+            await session.execute(select(EventRow).where(EventRow.id.in_(member_ids)))
+        ).scalars().all()
+    events = [event_row_to_model(row) for row in event_rows]
+    return revision, events
 
 
 async def process_score_job(job_id: str) -> None:
@@ -154,7 +173,7 @@ async def process_score_job(job_id: str) -> None:
                 )
             ).scalar_one_or_none()
 
-            await append_ledger_entry(
+            score_entry = await append_ledger_entry(
                 session,
                 entry_type="Score",
                 subject_id=job.hypothesis_id,
@@ -173,6 +192,36 @@ async def process_score_job(job_id: str) -> None:
                 input_entry_ids=[request_ledger_id] if request_ledger_id else [],
                 supersedes_entry_id=previous_score_entry.id if previous_score_entry else None,
             )
+
+            revision, events = await _revision_context(session, job)
+            acquisition_tasks = await build_acquisition_tasks_for_score(
+                session,
+                score_result=score_result,
+                hypothesis_payload=revision.payload_json,
+                events=events,
+            )
+            for task in acquisition_tasks:
+                await append_ledger_entry(
+                    session,
+                    entry_type="EvidenceAcquisitionPriority",
+                    subject_id=job.hypothesis_id,
+                    payload={
+                        "action": "evidence-acquisition-ranked",
+                        "hypothesisRevision": job.revision,
+                        "taskId": task.id,
+                        "evidenceType": task.evidence_type,
+                        "expectedInformationGain": task.expected_information_gain,
+                        "acquisitionPriorityScore": task.acquisition_priority_score,
+                        "caseOpportunityScore": task.case_opportunity_score,
+                        "tier": task.tier,
+                        "status": task.status,
+                        "recommendedAction": task.recommended_action,
+                    },
+                    produced_by="ai.evidenceAcquisitionPriority",
+                    source_system="Python:acquisition.py",
+                    model_version=ACQUISITION_PRIORITY_MODEL_VERSION,
+                    input_entry_ids=[score_entry.id],
+                )
 
             job.status = "SUCCEEDED"
             job.last_error = None
