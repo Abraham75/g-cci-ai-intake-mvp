@@ -175,7 +175,7 @@ async def test_material_revisions_are_scored_by_canonical_typescript_service():
         assert [row.revision for row in results] == [1, 2]
         assert all(0 <= row.score <= 1 for row in results)
         assert all(row.tier in {"A", "B", "C", "D"} for row in results)
-        assert all(row.model_version == "gcci-cos-v1.0-consolidated" for row in results)
+        assert all(row.model_version == "gcci-cos-v1.0-consolidated-ts-port" for row in results)
 
         score_entries = (
             await session.execute(
