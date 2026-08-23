@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from geoalchemy2.elements import WKTElement
 from geoalchemy2.shape import to_shape
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,10 +14,17 @@ from .database import EventRow, HypothesisEventRow, HypothesisRevisionRow, Hypot
 from .models import GeoPoint, IncidentHypothesis, NormalizedEvent, Provenance, SourceKind
 
 
+HYPOTHESIS_MATCH_LOCK_KEY = 874222
+
+
 def _point_wkt(point: GeoPoint | None) -> WKTElement | None:
     if point is None:
         return None
     return WKTElement(f"POINT({point.longitude} {point.latitude})", srid=4326)
+
+
+def _point_geography(point: GeoPoint):
+    return func.ST_GeogFromText(f"SRID=4326;POINT({point.longitude} {point.latitude})")
 
 
 def _event_time(event: NormalizedEvent):
@@ -63,6 +70,9 @@ def event_row_to_model(row: EventRow) -> NormalizedEvent:
 
 async def upsert_event(session: AsyncSession, event: NormalizedEvent) -> tuple[EventRow, bool]:
     now = utcnow()
+    existing = await session.get(EventRow, event.id)
+    is_new = existing is None
+
     values = {
         "id": event.id,
         "source_kind": event.source_kind.value,
@@ -92,9 +102,6 @@ async def upsert_event(session: AsyncSession, event: NormalizedEvent) -> tuple[E
         "last_ingested_at": now,
     }
 
-    existing = await session.get(EventRow, event.id)
-    is_new = existing is None
-
     stmt = insert(EventRow).values(first_ingested_at=now, **values)
     stmt = stmt.on_conflict_do_update(
         index_elements=[EventRow.id],
@@ -122,12 +129,15 @@ async def candidate_events_for(
         predicates.append(EventRow.roadway == event.roadway)
 
     if event.point:
-        predicates.append(
-            func.ST_DWithin(
-                EventRow.geom,
-                _point_wkt(event.point),
-                cfg.candidate_radius_meters,
-            )
+        predicates.extend(
+            [
+                EventRow.geom.is_not(None),
+                func.ST_DWithin(
+                    EventRow.geom,
+                    _point_geography(event.point),
+                    cfg.candidate_radius_meters,
+                ),
+            ]
         )
 
     rows = (
@@ -141,6 +151,12 @@ async def find_matching_hypothesis(
     hypothesis: IncidentHypothesis,
     cfg: Settings = settings,
 ) -> HypothesisRow | None:
+    # Serializes create-or-revise selection so concurrent feed arrivals cannot
+    # create parallel hypotheses for the same spatiotemporal incident window.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:key)"), {"key": HYPOTHESIS_MATCH_LOCK_KEY}
+    )
+
     predicates = [
         HypothesisRow.active.is_(True),
         HypothesisRow.end_time
@@ -153,12 +169,15 @@ async def find_matching_hypothesis(
         predicates.append(HypothesisRow.roadway == hypothesis.roadway)
 
     if hypothesis.centroid:
-        predicates.append(
-            func.ST_DWithin(
-                HypothesisRow.centroid,
-                _point_wkt(hypothesis.centroid),
-                cfg.candidate_radius_meters,
-            )
+        predicates.extend(
+            [
+                HypothesisRow.centroid.is_not(None),
+                func.ST_DWithin(
+                    HypothesisRow.centroid,
+                    _point_geography(hypothesis.centroid),
+                    cfg.candidate_radius_meters,
+                ),
+            ]
         )
 
     candidates = (
@@ -167,6 +186,7 @@ async def find_matching_hypothesis(
             .where(and_(*predicates))
             .order_by(HypothesisRow.updated_at.desc())
             .limit(25)
+            .with_for_update()
         )
     ).scalars().all()
 
