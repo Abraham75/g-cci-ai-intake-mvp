@@ -1,29 +1,110 @@
 # G-CCI Cross-Source Correlation Service
 
-Python/FastAPI service for cross-source transportation-event correlation, IncidentHypothesis generation, nearest-camera discovery, and expected-information-gain evidence-gap ranking.
+Python/FastAPI service for cross-source transportation-event correlation, durable PostgreSQL/PostGIS persistence, versioned `IncidentHypothesis` management, nearest-camera discovery, expected-information-gain evidence-gap ranking, and append-only decision-ledger provenance.
 
 ## Runtime boundary
 
 This service answers **whether records likely describe the same or related transportation event** and what evidence should be acquired next. It does not identify people, assign legal fault, authorize attorney outreach, or bypass the TypeScript compliance gate.
 
-## Run
+The following remain independent:
+
+```text
+Event Correlation
+!= Causal Relationship
+!= Party Attribution
+!= Case Opportunity
+!= Contact Eligibility
+```
+
+## Durable event flow
+
+```text
+NormalizedEvent
+    |
+    v
+PostgreSQL/PostGIS upsert
+    |
+    +--> Evidence ledger entry
+    |
+    v
+Time + roadway + ST_DWithin candidate search
+    |
+    v
+Correlation / clustering
+    |
+    v
+Stable IncidentHypothesis
+    |
+    v
+Immutable HypothesisRevision N
+    |
+    +--> hypothesis_events evidence links
+    +--> Hypothesis ledger entry
+    +--> supporting-evidence Assertion entries
+    |
+    v
+correlation_processed_hash updated
+```
+
+If a source record changes, its `raw_sha256` no longer matches `correlation_processed_hash`; the worker reprocesses it and creates a new hypothesis revision rather than overwriting prior history.
+
+## Database model
+
+PostgreSQL 16 + PostGIS stores:
+
+- `normalized_events` — source-normalized events with `geography(Point,4326)` geometry
+- `incident_hypotheses` — stable incident identity and current revision pointer
+- `hypothesis_revisions` — immutable machine-generated revisions
+- `hypothesis_events` — many-to-many supporting-evidence links
+- `decision_ledger` — append-only SHA-256 hash-linked evidentiary ledger
+
+The persistence path uses PostGIS `ST_DWithin` for spatial blocking and PostgreSQL advisory locks to serialize hypothesis create/revise selection and ledger hash-chain appends across multiple worker/API processes.
+
+## Continuous worker
+
+`python -m gcci.worker`
+
+The worker polls for records whose `correlation_processed_hash` is missing or differs from the current source hash. Failed records remain pending and are retried.
+
+## API
+
+- `POST /correlate` — stateless analysis; no persistence
+- `POST /events/ingest` — persist one event and correlate it transactionally
+- `POST /events/ingest-batch` — event-isolated batch ingestion
+- `GET /hypotheses/{id}` — current hypothesis revision
+- `GET /hypotheses/{id}/revisions` — complete hypothesis history
+- `GET /ledger/subject/{id}` — auditable ledger history for a subject
+- `GET /ledger/integrity` — verify the persistent hash chain
+- `GET /health` — service health
+
+## Run with PostGIS
 
 ```bash
 cd services/correlation-python
+docker compose up --build
+```
+
+This starts:
+
+- PostGIS on port `5432`
+- FastAPI on port `8000`
+- continuous correlation worker
+
+Open API docs at:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+For a local Python environment instead:
+
+```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 pip install -e ".[dev]"
 pytest -q
 uvicorn gcci.api:app --host 0.0.0.0 --port 8000
 ```
-
-## Endpoint
-
-`POST /correlate`
-
-Input: normalized GDOT/GEMA/Waze-style event records and camera metadata.
-
-Output: correlated incident packages containing pairwise factor scores, an IncidentHypothesis, contradictions, nearest cameras, evidence gaps, and explicit policy flags keeping party attribution/contact eligibility unevaluated.
 
 ## Correlation factors
 
@@ -47,12 +128,19 @@ P(evidence exists)
 
 Current evidence classes include CCTV, CAD/911, crash reports, tow records, EDR, ELD/telematics, and FMCSA carrier enrichment.
 
-## Production next steps
+## Ledger semantics
 
-- durable PostgreSQL/PostGIS persistence
-- worker/queue for continuous ingestion
-- service authentication and mTLS/API gateway
-- OpenTelemetry tracing and metrics
-- calibrated correlation thresholds from labeled outcomes
-- runtime RDF/SHACL projection
-- ledger bridge to the canonical TypeScript evidentiary ledger
+The decision ledger is append-only by application contract. Hypothesis revisions use `supersedes_entry_id` to identify the prior machine conclusion without deleting or mutating it. Each new supporting event creates a separate evidence-link assertion. Ledger rows are globally SHA-256 hash-linked, and a transaction-scoped PostgreSQL advisory lock serializes chain appends.
+
+For production, the database role used by the application should receive `SELECT` and `INSERT` on `decision_ledger`, but no `UPDATE` or `DELETE` privileges.
+
+## Remaining production hardening
+
+- authenticated ingestion and service-to-service authorization
+- managed secrets rather than local `.env` credentials
+- retry/dead-letter telemetry for upstream source adapters
+- OpenTelemetry traces, metrics, and structured logs
+- database backups, PITR, and replication strategy
+- calibrated correlation thresholds from labeled attorney-reviewed outcomes
+- runtime RDF/SHACL projection of persisted hypothesis revisions
+- migration from raw SQL bootstrap to Alembic once the schema stabilizes
