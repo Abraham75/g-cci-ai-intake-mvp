@@ -1,7 +1,7 @@
 [project]
 name = "gcci-cross-source-correlation"
-version = "1.2.0"
-description = "G-CCI cross-source transportation-event correlation, PostGIS persistence, canonical scoring bridge, and evidence-development service"
+version = "1.4.0"
+description = "G-CCI cross-source transportation-event correlation, PostGIS persistence, camera intelligence, canonical scoring bridge, and evidence-development service"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.116,<1",
