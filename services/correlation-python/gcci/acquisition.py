@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,17 +49,28 @@ async def build_acquisition_tasks_for_score(
 ) -> list[EvidenceAcquisitionTaskRow]:
     hypothesis = _hypothesis_from_payload(hypothesis_payload)
 
-    # Only the newest scored revision should contribute OPEN work. Historical tasks
-    # stay persisted for auditability but are not actionable after supersession.
-    await session.execute(
-        update(EvidenceAcquisitionTaskRow)
-        .where(
-            EvidenceAcquisitionTaskRow.hypothesis_id == score_result.hypothesis_id,
-            EvidenceAcquisitionTaskRow.revision < score_result.revision,
-            EvidenceAcquisitionTaskRow.status == "OPEN",
+    latest_scored_revision = (
+        await session.execute(
+            select(func.max(ScoreResultRow.revision)).where(
+                ScoreResultRow.hypothesis_id == score_result.hypothesis_id
+            )
         )
-        .values(status="SUPERSEDED", updated_at=utcnow())
-    )
+    ).scalar_one()
+    is_latest = latest_scored_revision is None or score_result.revision >= latest_scored_revision
+    task_status = "OPEN" if is_latest else "SUPERSEDED"
+
+    if is_latest:
+        # Historical tasks stay persisted for auditability but are not actionable
+        # after a newer scored revision becomes available.
+        await session.execute(
+            update(EvidenceAcquisitionTaskRow)
+            .where(
+                EvidenceAcquisitionTaskRow.hypothesis_id == score_result.hypothesis_id,
+                EvidenceAcquisitionTaskRow.revision < score_result.revision,
+                EvidenceAcquisitionTaskRow.status == "OPEN",
+            )
+            .values(status="SUPERSEDED", updated_at=utcnow())
+        )
 
     # Persistent camera inventory is not yet part of the PostGIS schema, so this
     # queue intentionally ranks gaps with no assumed camera availability. When a
@@ -84,7 +95,7 @@ async def build_acquisition_tasks_for_score(
             "acquisition_priority_score": priority,
             "case_opportunity_score": score_result.score,
             "tier": score_result.tier,
-            "status": "OPEN",
+            "status": task_status,
             "priority_model_version": ACQUISITION_PRIORITY_MODEL_VERSION,
             "gap_json": gap.model_dump(mode="json"),
             "updated_at": utcnow(),
@@ -106,7 +117,7 @@ async def build_acquisition_tasks_for_score(
                     "acquisition_priority_score": priority,
                     "case_opportunity_score": score_result.score,
                     "tier": score_result.tier,
-                    "status": "OPEN",
+                    "status": task_status,
                     "priority_model_version": ACQUISITION_PRIORITY_MODEL_VERSION,
                     "gap_json": gap.model_dump(mode="json"),
                     "updated_at": utcnow(),
