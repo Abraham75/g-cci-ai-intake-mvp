@@ -30,8 +30,16 @@ class Settings(BaseSettings):
     candidate_radius_meters: float = Field(default=5000.0, gt=0)
     same_incident_threshold: float = Field(default=0.82, ge=0, le=1)
     related_incident_threshold: float = Field(default=0.62, ge=0, le=1)
+
+    # Camera intelligence is spatially bounded and revision-aware.  The
+    # preservation window deliberately extends beyond the current hypothesis
+    # time interval to account for source clock offsets and approach/departure
+    # footage without rewriting the observed event timestamps themselves.
     camera_search_radius_meters: float = Field(default=4000.0, gt=0)
     max_camera_results: int = Field(default=8, ge=1, le=50)
+    camera_preservation_before_minutes: int = Field(default=10, ge=0, le=180)
+    camera_preservation_after_minutes: int = Field(default=10, ge=0, le=180)
+
     max_gap_results: int = Field(default=10, ge=1, le=50)
 
     database_url: str = "postgresql+asyncpg://gcci:gcci@localhost:5432/gcci"
