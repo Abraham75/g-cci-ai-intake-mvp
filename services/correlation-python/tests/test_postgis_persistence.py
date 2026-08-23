@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 
+from gcci.camera_repository import camera_candidates_for_hypothesis, upsert_camera_inventory
 from gcci.database import (
     DecisionLedgerRow,
     EvidenceAcquisitionTaskRow,
@@ -17,7 +18,7 @@ from gcci.database import (
     SessionLocal,
 )
 from gcci.ledger import verify_ledger_chain
-from gcci.models import GeoPoint, NormalizedEvent, Provenance, SourceKind
+from gcci.models import Camera, GeoPoint, NormalizedEvent, Provenance, SourceKind
 from gcci.persistence_service import PersistentCorrelationService
 from gcci.worker import claim_score_jobs, process_score_job
 
@@ -46,10 +47,31 @@ def make_event(event_id: str, source: str, minute: int, lat: float, lon: float) 
     )
 
 
+def make_camera(camera_id: str, lat: float, lon: float, direction: str = "WB") -> Camera:
+    return Camera(
+        id=camera_id,
+        name=f"Camera {camera_id}",
+        point=GeoPoint(latitude=lat, longitude=lon),
+        roadway="I-285",
+        direction=direction,
+        snapshot_url=f"https://example.invalid/{camera_id}.jpg",
+        source_system="TEST_GDOT_CAMERA",
+        provenance=Provenance(
+            source_system="TEST_GDOT_CAMERA",
+            source_record_id=camera_id,
+            raw_sha256=f"camera-hash-{camera_id}",
+        ),
+    )
+
+
 @pytest.fixture(autouse=True)
 async def clean_database():
     async with SessionLocal() as session:
         async with session.begin():
+            # Camera inventory is implemented with SQL rather than ORM rows; clear it
+            # explicitly so integration tests remain order-independent.
+            await session.execute(text("DELETE FROM hypothesis_camera_candidates"))
+            await session.execute(text("DELETE FROM traffic_cameras"))
             for table in (
                 DecisionLedgerRow,
                 EvidenceAcquisitionTaskRow,
@@ -146,6 +168,66 @@ async def test_new_source_record_revises_existing_incident_hypothesis_and_queues
             )
         ).scalars().all()
         assert len(score_requests) == 2
+
+
+@pytest.mark.asyncio
+async def test_camera_inventory_is_spatially_ranked_and_revision_scoped():
+    async with SessionLocal() as session:
+        async with session.begin():
+            count = await upsert_camera_inventory(
+                session,
+                [
+                    make_camera("cam-near", 33.9102, -84.3701, "WB"),
+                    make_camera("cam-opposite", 33.9103, -84.3702, "EB"),
+                    make_camera("cam-far", 34.10, -84.60, "WB"),
+                ],
+                produced_by="test.camera-seed",
+            )
+            assert count == 3
+
+    hypothesis_id = await _create_two_revision_hypothesis()
+
+    async with SessionLocal() as session:
+        candidates = await camera_candidates_for_hypothesis(session, hypothesis_id)
+        assert candidates
+        assert all(candidate["revision"] == 2 for candidate in candidates)
+        assert candidates[0]["cameraId"] == "cam-near"
+        assert candidates[0]["roadwayMatch"] is True
+        assert candidates[0]["directionMatch"] is True
+        assert candidates[0]["relevanceScore"] > candidates[1]["relevanceScore"]
+        assert all(candidate["cameraId"] != "cam-far" for candidate in candidates)
+        assert candidates[0]["preservationWindowStart"] < candidates[0]["preservationWindowEnd"]
+
+        lifecycle = (
+            await session.execute(
+                text(
+                    """
+                    SELECT revision, status, count(*) AS n
+                    FROM hypothesis_camera_candidates
+                    WHERE hypothesis_id = :hypothesis_id
+                    GROUP BY revision, status
+                    ORDER BY revision
+                    """
+                ),
+                {"hypothesis_id": hypothesis_id},
+            )
+        ).mappings().all()
+        assert any(row["revision"] == 1 and row["status"] == "SUPERSEDED" for row in lifecycle)
+        assert any(row["revision"] == 2 and row["status"] == "CURRENT" for row in lifecycle)
+
+        camera_entries = (
+            await session.execute(
+                select(DecisionLedgerRow).where(
+                    DecisionLedgerRow.subject_id == hypothesis_id,
+                    DecisionLedgerRow.entry_type == "CameraCandidateSet",
+                )
+            )
+        ).scalars().all()
+        assert len(camera_entries) == 2
+        assert all(entry.input_entry_ids_json for entry in camera_entries)
+
+        valid, error = await verify_ledger_chain(session)
+        assert valid, error
 
 
 @pytest.mark.asyncio
