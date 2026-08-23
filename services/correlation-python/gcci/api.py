@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from .acquisition import acquisition_queue, acquisition_tasks_for_hypothesis
 from .database import HypothesisRevisionRow, HypothesisRow, ScoreJobRow, ScoreResultRow, SessionLocal
 from .ledger import ledger_entries_for_subject, verify_ledger_chain
 from .models import Camera, CorrelatedIncidentPackage, NormalizedEvent
@@ -12,13 +13,14 @@ from .service import CrossSourceCorrelationService
 
 app = FastAPI(
     title="G-CCI Cross-Source Event Correlation Service",
-    version="1.2.0",
+    version="1.3.0",
     description=(
         "Correlates transportation-event records across independent sources, persists "
         "normalized events and versioned incident hypotheses in PostgreSQL/PostGIS, "
-        "queues material hypothesis revisions for canonical G-CCI scoring, discovers "
-        "nearby cameras, ranks evidence gaps, and writes revisions and scores into an "
-        "append-only decision ledger. It does not identify people or authorize outreach."
+        "queues material hypothesis revisions for canonical G-CCI scoring, ranks "
+        "evidence-development work by expected information gain and case opportunity, "
+        "and writes revisions, scores, and acquisition priorities into an append-only "
+        "decision ledger. It does not identify people or authorize outreach."
     ),
 )
 
@@ -46,9 +48,34 @@ class BatchIngestRequest(BaseModel):
     events: list[NormalizedEvent] = Field(min_length=1, max_length=5000)
 
 
+def _task_json(row) -> dict:
+    return {
+        "id": row.id,
+        "hypothesisId": row.hypothesis_id,
+        "revision": row.revision,
+        "scoreResultId": row.score_result_id,
+        "evidenceType": row.evidence_type,
+        "question": row.question,
+        "recommendedAction": row.recommended_action,
+        "expectedInformationGain": row.expected_information_gain,
+        "acquisitionPriorityScore": row.acquisition_priority_score,
+        "caseOpportunityScore": row.case_opportunity_score,
+        "tier": row.tier,
+        "status": row.status,
+        "priorityModelVersion": row.priority_model_version,
+        "gap": row.gap_json,
+        "createdAt": row.created_at.isoformat(),
+        "updatedAt": row.updated_at.isoformat(),
+        "policy": {
+            "contactEligibilityEvaluated": False,
+            "requiresComplianceGateBeforeOutreach": True,
+        },
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "gcci-cross-source-correlation", "version": "1.2.0"}
+    return {"status": "ok", "service": "gcci-cross-source-correlation", "version": "1.3.0"}
 
 
 @app.post("/correlate", response_model=CorrelateResponse)
@@ -193,6 +220,28 @@ async def get_score_history(hypothesis_id: str) -> list[dict]:
             }
             for row in rows
         ]
+
+
+@app.get("/hypotheses/{hypothesis_id}/acquisition-tasks")
+async def get_hypothesis_acquisition_tasks(
+    hypothesis_id: str,
+    open_only: bool = Query(default=False),
+) -> list[dict]:
+    async with SessionLocal() as session:
+        hypothesis = await session.get(HypothesisRow, hypothesis_id)
+        if hypothesis is None:
+            raise HTTPException(404, "Unknown hypothesis")
+        rows = await acquisition_tasks_for_hypothesis(
+            session, hypothesis_id, only_open=open_only
+        )
+        return [_task_json(row) for row in rows]
+
+
+@app.get("/acquisition-queue")
+async def get_acquisition_queue(limit: int = Query(default=100, ge=1, le=1000)) -> list[dict]:
+    async with SessionLocal() as session:
+        rows = await acquisition_queue(session, limit=limit)
+        return [_task_json(row) for row in rows]
 
 
 @app.get("/ledger/subject/{subject_id}")
