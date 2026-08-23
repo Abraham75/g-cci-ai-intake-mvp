@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     worker_batch_size: int = Field(default=250, ge=1, le=5000)
     worker_reprocess_lookback_minutes: int = Field(default=30, ge=1, le=1440)
 
+    canonical_scorer_url: str = "http://localhost:3001/api/scoring/score"
+    canonical_scorer_timeout_seconds: float = Field(default=10.0, gt=0, le=120)
+    scoring_worker_batch_size: int = Field(default=100, ge=1, le=5000)
+    scoring_retry_base_seconds: int = Field(default=15, ge=1, le=3600)
+    scoring_retry_max_seconds: int = Field(default=900, ge=1, le=86400)
+    score_material_confidence_delta: float = Field(default=0.05, ge=0, le=1)
+
     weights: CorrelationWeights = CorrelationWeights()
 
     model_config = SettingsConfigDict(
