@@ -1,15 +1,17 @@
 import React, { useState } from "react";
-import { BarChart3, Server, Scale, ShieldCheck } from "lucide-react";
+import { BarChart3, Radio, Server, Scale, ShieldCheck } from "lucide-react";
 import DecisionEconomicsDashboard from "./DecisionEconomicsDashboard.jsx";
 import PlatformStatus from "./PlatformStatus.jsx";
+import LiveSignals from "./LiveSignals.jsx";
 
 const NAV = [
+  { id: "signals", label: "Live Opportunity Signals", icon: Radio },
   { id: "economics", label: "Decision Economics", icon: BarChart3 },
   { id: "status", label: "Platform Status", icon: Server },
 ];
 
 export default function App() {
-  const [view, setView] = useState("economics");
+  const [view, setView] = useState("signals");
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 flex">
@@ -27,7 +29,7 @@ export default function App() {
         </nav>
         <div className="mt-auto p-4 border-t border-slate-800 text-[10px] text-slate-600 leading-relaxed">
           <div className="flex items-center gap-1.5 text-slate-500 mb-1"><ShieldCheck size={12} /> Compliance-first MVP</div>
-          Economics figures are synthetic until runtime outcome metrics are connected.
+          Public incident signals rank events for investigation; they never authorize outreach.
         </div>
       </aside>
 
@@ -37,7 +39,9 @@ export default function App() {
           <div className="text-[11px] text-slate-500">TypeScript/Express canonical runtime · React decision console</div>
         </header>
         <main className="p-6 max-w-[1600px] mx-auto">
-          {view === "economics" ? <DecisionEconomicsDashboard /> : <PlatformStatus />}
+          {view === "signals" && <LiveSignals />}
+          {view === "economics" && <DecisionEconomicsDashboard />}
+          {view === "status" && <PlatformStatus />}
         </main>
       </div>
     </div>
