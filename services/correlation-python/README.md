@@ -1,23 +1,24 @@
 # G-CCI Cross-Source Correlation Service
 
-Python/FastAPI service for cross-source transportation-event correlation, durable PostgreSQL/PostGIS persistence, versioned `IncidentHypothesis` management, canonical G-CCI Case Opportunity scoring, nearest-camera discovery, expected-information-gain evidence-gap ranking, score-conditioned evidence acquisition prioritization, and append-only decision-ledger provenance.
+Python/FastAPI service for cross-source transportation-event correlation, durable PostgreSQL/PostGIS persistence, versioned `IncidentHypothesis` management, canonical G-CCI Case Opportunity scoring, persistent camera intelligence, expected-information-gain evidence-gap ranking, score-conditioned evidence acquisition prioritization, and append-only decision-ledger provenance.
 
 ## Runtime boundary
 
-This service answers **whether records likely describe the same or related transportation event**, whether a hypothesis revision is material enough to require re-scoring, and what evidence should be acquired next. It does not identify people, assign legal fault, authorize attorney outreach, or bypass the TypeScript compliance gate.
+This service answers whether records likely describe the same or related transportation event, whether a hypothesis revision is material enough to require re-scoring, which cameras are spatially/semantically relevant to the current hypothesis revision, and what evidence should be acquired next.
 
-The following remain independent:
+It does **not** identify people, assign legal fault, authorize attorney outreach, or bypass the TypeScript compliance gate.
 
 ```text
 Event Correlation
 != Causal Relationship
 != Party Attribution
 != Case Opportunity
+!= Camera Relevance
 != Evidence Acquisition Priority
 != Contact Eligibility
 ```
 
-## Durable event -> score -> investigation flow
+## Durable event -> hypothesis -> camera -> score -> investigation flow
 
 ```text
 NormalizedEvent
@@ -31,7 +32,7 @@ PostgreSQL/PostGIS upsert
 Time + roadway + ST_DWithin candidate search
     |
     v
-Correlation / clustering
+Cross-source correlation / clustering
     |
     v
 Stable IncidentHypothesis
@@ -42,6 +43,14 @@ Immutable HypothesisRevision N
     +--> hypothesis_events evidence links
     +--> Hypothesis ledger entry
     +--> supporting-evidence Assertion entries
+    |
+    +--> PostGIS camera candidate refresh
+    |       |
+    |       +--> distance in meters
+    |       +--> roadway compatibility
+    |       +--> direction compatibility
+    |       +--> preservation time window
+    |       `--> CameraCandidateSet ledger entry
     |
     v
 Materiality evaluation
@@ -69,14 +78,64 @@ Materiality evaluation
              Evidence Acquisition Priority
                          |
                          +--> evidence_acquisition_tasks
-                         +--> EvidenceAcquisitionPriority ledger entries
+                         `--> EvidenceAcquisitionPriority ledger entries
 
 Contact eligibility remains outside this path and requires the separate compliance gate.
 ```
 
-If a source record changes, its `raw_sha256` no longer matches `correlation_processed_hash`; the worker reprocesses it and creates a new hypothesis revision rather than overwriting prior history.
+If a source record changes, its `raw_sha256` no longer matches `correlation_processed_hash`; the worker reprocesses it and creates a new hypothesis revision instead of overwriting prior history.
 
-## What makes a revision material
+## Persistent camera intelligence
+
+Camera inventory is now a first-class PostGIS resource rather than an ephemeral array passed to `/correlate`.
+
+`traffic_cameras` stores:
+
+- stable camera ID and source record ID
+- source system
+- name
+- roadway and direction
+- latitude/longitude
+- `geography(Point,4326)` geometry
+- snapshot URL and stream URL when supplied by the source
+- active state
+- raw normalized source payload
+- first/last observation timestamps
+
+`hypothesis_camera_candidates` stores the reproducible camera set for each hypothesis revision:
+
+- hypothesis ID + revision
+- camera ID
+- metric distance from hypothesis centroid
+- roadway match
+- direction match
+- evidence-discovery relevance score
+- preservation-window start/end
+- lifecycle state (`CURRENT` / `SUPERSEDED`)
+
+Camera relevance is intentionally narrow:
+
+```text
+CameraRelevance =
+0.70 * DistanceScore
++ 0.20 * RoadwayMatch
++ 0.10 * DirectionMatch
+```
+
+It does not infer causation or party identity.
+
+The default search radius is 4,000 meters and the default preservation window extends 10 minutes before and after the hypothesis evidence interval. Both are configurable:
+
+```text
+GCCI_CAMERA_SEARCH_RADIUS_METERS
+GCCI_MAX_CAMERA_RESULTS
+GCCI_CAMERA_PRESERVATION_BEFORE_MINUTES
+GCCI_CAMERA_PRESERVATION_AFTER_MINUTES
+```
+
+Every hypothesis revision automatically refreshes its candidate set. Older candidate sets are retained as `SUPERSEDED`; they are not deleted. Explicit refresh is also available when the camera inventory changes without a hypothesis revision.
+
+## What makes a hypothesis revision material
 
 A revision is queued for canonical scoring when one or more of these occurs:
 
@@ -85,13 +144,13 @@ A revision is queued for canonical scoring when one or more of these occurs:
 - machine-confidence change meets the configured materiality threshold
 - supporting-evidence membership changes
 - contradiction set changes
-- the derived canonical scoring input changes
+- derived canonical scoring input changes
 
-The default machine-confidence materiality threshold is `0.05` and is configurable with `GCCI_SCORE_MATERIAL_CONFIDENCE_DELTA`.
+The default confidence materiality threshold is `0.05`, configurable with `GCCI_SCORE_MATERIAL_CONFIDENCE_DELTA`.
 
 ## Canonical scoring boundary
 
-The Python service **does not duplicate the canonical COS formula**. It derives evidence-backed scoring components and sends the canonical input contract to the TypeScript runtime at:
+The Python service does **not** duplicate the canonical COS formula. It derives evidence-backed scoring components and sends the canonical input contract to the TypeScript runtime:
 
 ```text
 POST /api/scoring/score
@@ -110,15 +169,15 @@ COS =
 - 0.20 * UncertaintyPenalty
 ```
 
-and the canonical tier thresholds:
+Canonical tiers:
 
 - Tier A: `>= 0.80`
 - Tier B: `>= 0.65`
 - Tier C: `>= 0.45`
 - Tier D: `< 0.45`
-- any unresolved high-severity contradiction forces Tier C
+- unresolved high-severity contradiction forces Tier C
 
-Score-input derivation is versioned separately as `gcci-score-input-derivation-v1.0.0`. Correlation confidence is never silently converted into liability or party attribution.
+Correlation confidence is never silently converted into liability or party attribution.
 
 ## Evidence acquisition priority
 
@@ -138,61 +197,73 @@ The investigation queue then computes a separate Acquisition Priority Score:
 APS = EIG * (0.55 + 0.45 * COS) * TierMultiplier
 ```
 
-Tier multipliers are currently:
+Case economics modulate investigation urgency; they do not erase evidentiary value. Contact eligibility is not an input.
 
-- A = `1.00`
-- B = `0.90`
-- C = `0.75`
-- D = `0.55`
-
-This is deliberately separate from COS. Case economics modulate investigation urgency; they do not erase evidentiary value. Contact eligibility is not an input.
-
-Only acquisition tasks tied to the newest completed score revision remain `OPEN`. Older revision tasks are preserved as `SUPERSEDED`, preventing stale evidence instructions from appearing in the attorney queue while retaining complete audit history.
+Only acquisition tasks tied to the newest completed score revision remain `OPEN`. Older revision tasks are retained as `SUPERSEDED`.
 
 ## Database model
 
 PostgreSQL 16 + PostGIS stores:
 
-- `normalized_events` — source-normalized events with `geography(Point,4326)` geometry
-- `incident_hypotheses` — stable incident identity and current revision pointer
-- `hypothesis_revisions` — immutable machine-generated revisions
-- `hypothesis_events` — version-aware supporting-evidence links
-- `score_jobs` — durable canonical-scoring outbox with lease/retry state
-- `score_results` — immutable score results by hypothesis revision
-- `evidence_acquisition_tasks` — versioned investigation queue derived from EIG + canonical COS
-- `decision_ledger` — append-only SHA-256 hash-linked evidentiary ledger
+- `normalized_events`
+- `incident_hypotheses`
+- `hypothesis_revisions`
+- `hypothesis_events`
+- `traffic_cameras`
+- `hypothesis_camera_candidates`
+- `score_jobs`
+- `score_results`
+- `evidence_acquisition_tasks`
+- `decision_ledger`
 
-The persistence path uses PostGIS `ST_DWithin` for spatial blocking and PostgreSQL advisory locks to serialize hypothesis create/revise selection and ledger hash-chain appends across multiple worker/API processes.
+The persistence path uses PostGIS `ST_DWithin` and `ST_Distance` for event and camera spatial operations and PostgreSQL advisory locks for concurrency-critical hypothesis/ledger paths.
 
-## Continuous worker
+Migrations are applied in lexical order:
 
-`python -m gcci.worker`
-
-The worker performs two durable loops:
-
-1. correlation processing for records whose `correlation_processed_hash` is missing or differs from the current source hash;
-2. canonical scoring for material revisions queued in `score_jobs`, followed by acquisition-priority generation.
-
-Scoring jobs use `FOR UPDATE SKIP LOCKED`, a time-bounded `PROCESSING` lease, and exponential retry. A scorer/network outage does not roll back correlation or lose the score request.
+```text
+001_postgis_persistence.sql
+002_hypothesis_event_lifecycle.sql
+003_canonical_scoring_outbox.sql
+004_evidence_acquisition_queue.sql
+005_camera_inventory_and_hypothesis_candidates.sql
+```
 
 ## API
 
-- `POST /correlate` — stateless analysis; no persistence
-- `POST /events/ingest` — persist one event and correlate it transactionally
-- `POST /events/ingest-batch` — event-isolated batch ingestion
-- `GET /hypotheses/{id}` — current hypothesis revision
-- `GET /hypotheses/{id}/revisions` — complete hypothesis history
-- `GET /hypotheses/{id}/score` — latest canonical score plus pending-job state
-- `GET /hypotheses/{id}/scores` — canonical score history by revision
-- `GET /hypotheses/{id}/acquisition-tasks` — evidence-acquisition history for one hypothesis
-- `GET /acquisition-queue` — current cross-hypothesis OPEN investigation queue, highest priority first
-- `GET /ledger/subject/{id}` — auditable ledger history for a subject
-- `GET /ledger/integrity` — verify the persistent hash chain
-- `GET /health` — service health
+Core correlation and scoring state:
 
-The TypeScript service additionally exposes:
+- `POST /correlate` — stateless correlation analysis
+- `POST /events/ingest`
+- `POST /events/ingest-batch`
+- `GET /hypotheses/{id}`
+- `GET /hypotheses/{id}/revisions`
+- `GET /hypotheses/{id}/score`
+- `GET /hypotheses/{id}/scores`
+- `GET /hypotheses/{id}/acquisition-tasks`
+- `GET /acquisition-queue`
 
-- `POST /api/scoring/score` — canonical internal scoring contract
+Camera intelligence:
+
+- `POST /cameras/ingest-batch` — persist/upsert camera inventory
+- `GET /cameras/status` — inventory counts/freshness
+- `GET /hypotheses/{id}/cameras` — persisted revision-scoped candidates
+- `POST /hypotheses/{id}/cameras/refresh` — explicit re-evaluation against current inventory
+
+Auditability:
+
+- `GET /ledger/subject/{id}`
+- `GET /ledger/integrity`
+- `GET /health`
+
+The TypeScript service additionally exposes `POST /api/scoring/score` as the canonical internal scoring contract.
+
+## Continuous worker
+
+```bash
+python -m gcci.worker
+```
+
+The worker performs durable correlation and canonical-scoring loops. Camera candidate refresh happens transactionally when a hypothesis revision is persisted, so scorer availability is not required for camera discovery.
 
 ## Run the full stack
 
@@ -201,67 +272,41 @@ cd services/correlation-python
 docker compose up --build
 ```
 
-This starts:
+Services:
 
-- PostGIS on port `5432`
-- canonical TypeScript G-CCI scorer on port `3001`
-- FastAPI correlation service on port `8000`
+- PostGIS `:5432`
+- TypeScript canonical scorer `:3001`
+- FastAPI correlation/camera service `:8000`
 - continuous correlation + scoring worker
 
-Open API docs at:
+Open FastAPI docs at `http://127.0.0.1:8000/docs`.
 
-```text
-http://127.0.0.1:8000/docs
-```
+## Case Intelligence Detail UI
 
-For a local Python environment instead:
+The React attorney workspace consumes the persistent endpoints directly. Its **Map & Cameras** tab displays:
 
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-pip install -e ".[dev]"
-pytest -q
-uvicorn gcci.api:app --host 0.0.0.0 --port 8000
-```
+- current camera inventory count/freshness
+- revision-scoped nearest camera candidates
+- incident centroid and camera coordinates
+- distance
+- roadway and direction matches
+- camera relevance
+- preservation window
+- snapshot/stream source links when available
 
-The local TypeScript scorer must also be running:
-
-```bash
-npm install
-npm run server
-```
-
-## Correlation factors
-
-- temporal proximity
-- spatial proximity
-- roadway agreement
-- direction compatibility
-- mechanism similarity
-- independent-source corroboration
-
-## Evidence-gap classes
-
-Current evidence classes include CCTV, CAD/911, crash reports, tow records, EDR, ELD/telematics, and FMCSA carrier enrichment.
+The initial spatial display is dependency-free so the API contract can stabilize before adopting MapLibre. A future MapLibre implementation can replace the renderer without changing the persisted camera or hypothesis contracts.
 
 ## Ledger semantics
 
-The decision ledger is append-only by application contract. Hypothesis revisions use `supersedes_entry_id` to identify the prior machine conclusion without deleting or mutating it. Each supporting-evidence attachment/withdrawal is a separate assertion. Material score requests, canonical score results, and acquisition-priority decisions are separate ledger entries, preserving the exact revision and scoring input that produced each result.
+The decision ledger is append-only by application contract. Hypothesis revisions, camera candidate sets, score requests, score results, acquisition-priority decisions, and evidence-link changes are distinct ledger entries. Camera candidate entries cite the hypothesis revision entry that caused the search.
 
-Ledger rows are globally SHA-256 hash-linked, and a transaction-scoped PostgreSQL advisory lock serializes chain appends.
-
-For production, the database role used by the application should receive `SELECT` and `INSERT` on `decision_ledger`, but no `UPDATE` or `DELETE` privileges.
+Ledger rows are globally SHA-256 hash-linked, with a transaction-scoped PostgreSQL advisory lock serializing chain appends.
 
 ## Remaining production hardening
 
-- persist the GDOT camera inventory in PostGIS so acquisition ranking can use live nearest-camera availability rather than a conservative no-camera assumption
-- authenticated service-to-service scoring requests / network policy
-- authenticated ingestion
-- managed secrets rather than local `.env` credentials
-- retry/dead-letter telemetry for upstream source adapters and canonical scorer
-- OpenTelemetry traces, metrics, and structured logs
-- database backups, PITR, and replication strategy
-- calibrated component-derivation and acquisition-priority parameters from attorney-reviewed outcomes
-- calibrated correlation thresholds from labeled outcomes
-- runtime RDF/SHACL projection of persisted hypothesis, score, and acquisition revisions
-- migration from raw SQL bootstrap to Alembic once the schema stabilizes
+- connect the public GDOT ArcGIS/511 camera adapter directly to `POST /cameras/ingest-batch` or the repository service
+- scheduled camera inventory refresh and stale-camera deactivation policy
+- MapLibre roadway basemap and optional camera field-of-view metadata
+- authenticated ingestion and service-to-service scoring
+- managed secrets / network policy
+- production observability and alerting
