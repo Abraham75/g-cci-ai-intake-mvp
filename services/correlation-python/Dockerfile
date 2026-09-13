@@ -9,8 +9,11 @@ COPY pyproject.toml .
 COPY gcci ./gcci
 COPY migrations ./migrations
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . \
+    && useradd --create-home --uid 10001 gcci \
+    && chown -R gcci:gcci /app
 
+USER gcci
 EXPOSE 8000
 
 CMD ["uvicorn", "gcci.api:app", "--host", "0.0.0.0", "--port", "8000"]
