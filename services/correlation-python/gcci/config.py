@@ -28,9 +28,20 @@ class CorrelationWeights(BaseModel):
 class Settings(BaseSettings):
     environment: str = "development"
     require_auth: bool = False
-    # JSON map in env, for example:
-    # GCCI_AUTH_TOKENS='{"token1":"ATTORNEY:alice","token2":"COMPLIANCE:bob"}'
+
+    # Static bearer identities are intended for service accounts and local/dev use.
+    # Example: GCCI_AUTH_TOKENS='{"token":"SERVICE:ingestion-worker"}'
     auth_tokens: dict[str, str] = Field(default_factory=dict)
+
+    # Provider-neutral OIDC/JWT configuration for human users. When configured,
+    # unknown static tokens are validated against the issuer JWKS.
+    oidc_issuer: str | None = None
+    oidc_audience: str | None = None
+    oidc_jwks_url: str | None = None
+    oidc_role_claim: str = "roles"
+    oidc_name_claim: str = "name"
+    oidc_allowed_algorithms: list[str] = Field(default_factory=lambda: ["RS256"])
+
     cors_origins: list[str] = Field(
         default_factory=lambda: ["http://127.0.0.1:5173", "http://localhost:5173"]
     )
@@ -89,8 +100,12 @@ class Settings(BaseSettings):
         if self.environment.lower() == "production":
             if not self.require_auth:
                 raise ValueError("GCCI_REQUIRE_AUTH must be true in production")
-            if not self.auth_tokens:
-                raise ValueError("GCCI_AUTH_TOKENS must be configured in production")
+            has_oidc = bool(self.oidc_issuer and self.oidc_audience and self.oidc_jwks_url)
+            if not self.auth_tokens and not has_oidc:
+                raise ValueError(
+                    "Production authentication requires GCCI_AUTH_TOKENS for service accounts "
+                    "or a complete OIDC issuer/audience/JWKS configuration"
+                )
             if not self.internal_service_token:
                 raise ValueError("GCCI_INTERNAL_SERVICE_TOKEN must be configured in production")
             if not self.contact_vault_key_b64 or not self.contact_fingerprint_key:
