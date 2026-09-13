@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import os
 import re
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -66,14 +67,15 @@ def fingerprint_contact_value(contact_type: str, normalized: str) -> str:
 
 def encrypt_contact_value(contact_type: str, value: str, *, aad: str) -> tuple[bytes, bytes, str, str]:
     normalized = normalize_contact_value(contact_type, value)
-    nonce = AESGCM.generate_key(bit_length=96)[:12]
-    # AESGCM.generate_key only supports 128/192/256 bits. Use os.urandom for nonce.
-    import os
-
     nonce = os.urandom(12)
     cipher = AESGCM(_key())
     encrypted = cipher.encrypt(nonce, normalized.encode("utf-8"), aad.encode("utf-8"))
-    return encrypted, nonce, fingerprint_contact_value(contact_type, normalized), mask_contact_value(contact_type, normalized)
+    return (
+        encrypted,
+        nonce,
+        fingerprint_contact_value(contact_type, normalized),
+        mask_contact_value(contact_type, normalized),
+    )
 
 
 def decrypt_contact_value(encrypted: bytes, nonce: bytes, *, aad: str) -> str:
