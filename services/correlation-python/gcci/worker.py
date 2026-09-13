@@ -16,6 +16,7 @@ from .database import (
     SessionLocal,
     utcnow,
 )
+from .lead_qualification import build_lead_qualification_for_score
 from .ledger import append_ledger_entry
 from .persistence_service import PersistentCorrelationService
 from .repository import event_row_to_model
@@ -223,13 +224,23 @@ async def process_score_job(job_id: str) -> None:
                     input_entry_ids=[score_entry.id],
                 )
 
+            # Lead qualification is downstream of canonical scoring. It consumes the
+            # score and persisted evidence dimensions but never grants outreach access.
+            # Prospect resolution remains UNKNOWN until evidence-backed human review
+            # advances it through CANDIDATE -> CORROBORATED -> VERIFIED.
+            await build_lead_qualification_for_score(
+                session,
+                score_result=score_result,
+                score_ledger_entry_id=score_entry.id,
+            )
+
             job.status = "SUCCEEDED"
             job.last_error = None
             job.updated_at = utcnow()
             job.next_attempt_at = utcnow()
 
     log.info(
-        "scored hypothesis=%s revision=%s score=%.2f tier=%s",
+        "scored and qualified hypothesis=%s revision=%s score=%.2f tier=%s",
         job.hypothesis_id,
         job.revision,
         response.result.score,
@@ -239,7 +250,7 @@ async def process_score_job(job_id: str) -> None:
 
 async def run_forever() -> None:
     logging.basicConfig(level=logging.INFO)
-    log.info("starting G-CCI correlation + canonical scoring worker")
+    log.info("starting G-CCI correlation + canonical scoring + lead qualification worker")
 
     while True:
         did_work = False
