@@ -78,6 +78,7 @@ jobs:
       GCCI_INTERNAL_SERVICE_TOKEN: gcci-ci-internal-service-token
       GCCI_CONTACT_VAULT_KEY_B64: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       GCCI_CONTACT_FINGERPRINT_KEY: gcci-ci-contact-fingerprint-key
+      GCCI_CAMERA_MIN_EXPECTED_RECORDS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -117,15 +118,13 @@ jobs:
         working-directory: services/correlation-python
         run: python -m compileall -q gcci tests
 
-      - name: Apply PostGIS schema migrations
+      - name: Apply tracked PostGIS migrations
         working-directory: services/correlation-python
-        env:
-          PGPASSWORD: gcci_ci
-        run: |
-          for migration in migrations/*.sql; do
-            echo "Applying ${migration}"
-            psql -v ON_ERROR_STOP=1 -h localhost -U gcci -d gcci -f "${migration}"
-          done
+        run: python -m gcci.migrate
+
+      - name: Verify migration runner is idempotent
+        working-directory: services/correlation-python
+        run: python -m gcci.migrate
 
       - name: Ruff
         working-directory: services/correlation-python
