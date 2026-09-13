@@ -14,7 +14,7 @@ class Actor:
     role: str
 
 
-def _resolve_bearer(authorization: str | None) -> Actor:
+def resolve_bearer(authorization: str | None) -> Actor:
     if not settings.require_auth:
         return Actor(name="development-bypass", role="ADMIN")
 
@@ -36,7 +36,7 @@ def _resolve_bearer(authorization: str | None) -> Actor:
 
 
 async def current_actor(authorization: str | None = Header(default=None)) -> Actor:
-    return _resolve_bearer(authorization)
+    return resolve_bearer(authorization)
 
 
 def require_roles(*roles: str):
