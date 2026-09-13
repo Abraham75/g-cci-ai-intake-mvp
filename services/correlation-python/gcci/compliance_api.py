@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from .contact_vault import decrypt_contact_value, encrypt_contact_value
 from .database import SessionLocal
@@ -106,7 +108,7 @@ async def review_compliance_gate(
     body: ComplianceReviewInput,
     actor: Actor = Depends(require_roles("COMPLIANCE")),
 ) -> dict:
-    status = _eligibility(
+    eligibility = _eligibility(
         body.legal_access_basis,
         body.solicitation_review_status,
         body.suppression_checked,
@@ -158,12 +160,11 @@ async def review_compliance_gate(
                     "review_status": body.solicitation_review_status,
                     "hold_days": body.solicitation_hold_days,
                     "suppression_checked": body.suppression_checked,
-                    "eligibility": status,
-                    "notes": __import__("json").dumps(notes),
+                    "eligibility": eligibility,
+                    "notes": json.dumps(notes),
                     "reviewed_by": actor.name,
                 },
             )
-
             await append_ledger_entry(
                 session,
                 entry_type="ComplianceDecision",
@@ -175,12 +176,11 @@ async def review_compliance_gate(
                     "solicitationReviewStatus": body.solicitation_review_status,
                     "suppressionChecked": body.suppression_checked,
                     "solicitationHoldDays": body.solicitation_hold_days,
-                    "resultingEligibility": status,
+                    "resultingEligibility": eligibility,
                 },
                 produced_by=f"human:{actor.name}",
                 source_system="PostgreSQL/PostGIS compliance gate",
             )
-
         return await _gate(session, hypothesis_id)
 
 
@@ -234,9 +234,7 @@ async def add_contact(
     aad = f"gcci:{hypothesis_id}:{body.prospect_id}:{body.contact_type}"
     try:
         encrypted, nonce, fingerprint, masked = encrypt_contact_value(
-            body.contact_type,
-            body.value,
-            aad=aad,
+            body.contact_type, body.value, aad=aad
         )
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
@@ -244,28 +242,28 @@ async def add_contact(
         raise HTTPException(400, str(exc)) from exc
 
     contact_id = str(uuid4())
-    async with SessionLocal() as session:
-        async with session.begin():
-            prospect = (
-                await session.execute(
-                    text(
-                        """
-                        SELECT id, stage, lawful_access_basis
-                        FROM prospect_resolution_records
-                        WHERE id = :prospect_id AND hypothesis_id = :hypothesis_id
-                        """
-                    ),
-                    {"prospect_id": body.prospect_id, "hypothesis_id": hypothesis_id},
-                )
-            ).mappings().first()
-            if prospect is None:
-                raise HTTPException(404, "Unknown prospect for hypothesis")
-            if prospect["stage"] != "VERIFIED":
-                raise HTTPException(409, "Contact storage requires a VERIFIED prospect")
-            if body.lawful_access_basis == "NotEstablished":
-                raise HTTPException(409, "Contact storage requires an established lawful-access basis")
+    try:
+        async with SessionLocal() as session:
+            async with session.begin():
+                prospect = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT id, stage
+                            FROM prospect_resolution_records
+                            WHERE id = :prospect_id AND hypothesis_id = :hypothesis_id
+                            """
+                        ),
+                        {"prospect_id": body.prospect_id, "hypothesis_id": hypothesis_id},
+                    )
+                ).mappings().first()
+                if prospect is None:
+                    raise HTTPException(404, "Unknown prospect for hypothesis")
+                if prospect["stage"] != "VERIFIED":
+                    raise HTTPException(409, "Contact storage requires a VERIFIED prospect")
+                if body.lawful_access_basis == "NotEstablished":
+                    raise HTTPException(409, "Contact storage requires an established lawful-access basis")
 
-            try:
                 await session.execute(
                     text(
                         """
@@ -300,30 +298,29 @@ async def add_contact(
                         "created_by": actor.name,
                     },
                 )
-            except Exception as exc:
-                if "uq_contact_fingerprint_hypothesis" in str(exc):
-                    raise HTTPException(409, "Duplicate contact value for hypothesis") from exc
-                raise
-
-            await append_ledger_entry(
-                session,
-                entry_type="ContactResolution",
-                subject_id=hypothesis_id,
-                payload={
-                    "action": "encrypted-contact-added",
-                    "contactPointId": contact_id,
-                    "prospectId": body.prospect_id,
-                    "contactType": body.contact_type,
-                    "maskedValue": masked,
-                    "sourceType": body.source_type,
-                    "sourceReference": body.source_reference,
-                    "lawfulAccessBasis": body.lawful_access_basis,
-                    "verificationConfidence": body.verification_confidence,
-                    "verified": body.verified,
-                },
-                produced_by=f"human:{actor.name}",
-                source_system="encrypted-contact-vault",
-            )
+                await append_ledger_entry(
+                    session,
+                    entry_type="ContactResolution",
+                    subject_id=hypothesis_id,
+                    payload={
+                        "action": "encrypted-contact-added",
+                        "contactPointId": contact_id,
+                        "prospectId": body.prospect_id,
+                        "contactType": body.contact_type,
+                        "maskedValue": masked,
+                        "sourceType": body.source_type,
+                        "sourceReference": body.source_reference,
+                        "lawfulAccessBasis": body.lawful_access_basis,
+                        "verificationConfidence": body.verification_confidence,
+                        "verified": body.verified,
+                    },
+                    produced_by=f"human:{actor.name}",
+                    source_system="encrypted-contact-vault",
+                )
+    except IntegrityError as exc:
+        if "uq_contact_fingerprint_hypothesis" in str(exc):
+            raise HTTPException(409, "Duplicate contact value for hypothesis") from exc
+        raise
 
     return {"id": contact_id, "maskedValue": masked, "status": "ACTIVE"}
 
@@ -334,6 +331,11 @@ async def reveal_contact(
     body: RevealInput,
     actor: Actor = Depends(require_roles("ATTORNEY", "COMPLIANCE")),
 ) -> dict:
+    allowed = False
+    audit_id = str(uuid4())
+    row = None
+    gate = None
+
     async with SessionLocal() as session:
         async with session.begin():
             row = (
@@ -342,8 +344,7 @@ async def reveal_contact(
                         """
                         SELECT id, hypothesis_id, prospect_id, contact_type,
                                encrypted_value, nonce, masked_value, status, verified
-                        FROM contact_points
-                        WHERE id = :id
+                        FROM contact_points WHERE id = :id
                         """
                     ),
                     {"id": contact_id},
@@ -353,12 +354,11 @@ async def reveal_contact(
                 raise HTTPException(404, "Unknown contact point")
 
             gate = await _gate(session, row["hypothesis_id"])
-            allowed = (
+            allowed = bool(
                 row["status"] == "ACTIVE"
-                and bool(row["verified"])
+                and row["verified"]
                 and gate["contactEligibilityStatus"] == "Eligible"
             )
-            audit_id = str(uuid4())
             await session.execute(
                 text(
                     """
@@ -378,7 +378,7 @@ async def reveal_contact(
                     "actor": actor.name,
                     "reason": body.reason,
                     "allowed": allowed,
-                    "gate": __import__("json").dumps(gate),
+                    "gate": json.dumps(gate),
                 },
             )
             await append_ledger_entry(
@@ -397,22 +397,24 @@ async def reveal_contact(
                 source_system="encrypted-contact-vault",
             )
 
-            if not allowed:
-                raise HTTPException(403, "Contact reveal blocked by verification/status/compliance gate")
+    # The transaction above is committed before denial is returned so the denied
+    # access attempt remains part of the immutable audit trail.
+    if not allowed or row is None or gate is None:
+        raise HTTPException(403, "Contact reveal blocked by verification/status/compliance gate")
 
-            aad = f"gcci:{row['hypothesis_id']}:{row['prospect_id']}:{row['contact_type']}"
-            try:
-                value = decrypt_contact_value(row["encrypted_value"], row["nonce"], aad=aad)
-            except RuntimeError as exc:
-                raise HTTPException(503, str(exc)) from exc
+    aad = f"gcci:{row['hypothesis_id']}:{row['prospect_id']}:{row['contact_type']}"
+    try:
+        value = decrypt_contact_value(row["encrypted_value"], row["nonce"], aad=aad)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
 
-            return {
-                "id": contact_id,
-                "contactType": row["contact_type"],
-                "value": value,
-                "maskedValue": row["masked_value"],
-                "auditId": audit_id,
-            }
+    return {
+        "id": contact_id,
+        "contactType": row["contact_type"],
+        "value": value,
+        "maskedValue": row["masked_value"],
+        "auditId": audit_id,
+    }
 
 
 @router.post("/hypotheses/{hypothesis_id}/activate")
@@ -420,6 +422,10 @@ async def activate_for_outreach(
     hypothesis_id: str,
     actor: Actor = Depends(require_roles("ATTORNEY", "COMPLIANCE")),
 ) -> dict:
+    allowed = False
+    reasons: list[str] = []
+    attempt_id = str(uuid4())
+
     async with SessionLocal() as session:
         async with session.begin():
             gate = await _gate(session, hypothesis_id)
@@ -456,7 +462,6 @@ async def activate_for_outreach(
                 and verified_prospect
                 and verified_contact
             )
-            reasons = []
             if gate["contactEligibilityStatus"] != "Eligible":
                 reasons.append("compliance gate not eligible")
             if not verified_prospect:
@@ -464,7 +469,6 @@ async def activate_for_outreach(
             if not verified_contact:
                 reasons.append("no verified active contact point")
 
-            attempt_id = str(uuid4())
             await session.execute(
                 text(
                     """
@@ -483,7 +487,7 @@ async def activate_for_outreach(
                     "requested_by": actor.name,
                     "allowed": allowed,
                     "reason": "; ".join(reasons) if reasons else "all gates passed",
-                    "gate": __import__("json").dumps(gate),
+                    "gate": json.dumps(gate),
                 },
             )
             await append_ledger_entry(
@@ -501,6 +505,8 @@ async def activate_for_outreach(
                 source_system="PostgreSQL/PostGIS compliance gate",
             )
 
-            if not allowed:
-                raise HTTPException(403, {"status": "BLOCKED", "reasons": reasons})
-            return {"status": "ACTIVATED_FOR_ATTORNEY_OUTREACH", "attemptId": attempt_id}
+    # Commit the activation attempt even when blocked; otherwise the most important
+    # negative compliance events disappear from the audit trail.
+    if not allowed:
+        raise HTTPException(403, {"status": "BLOCKED", "reasons": reasons, "attemptId": attempt_id})
+    return {"status": "ACTIVATED_FOR_ATTORNEY_OUTREACH", "attemptId": attempt_id}
