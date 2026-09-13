@@ -7,6 +7,7 @@ from sqlalchemy import select
 from .acquisition import acquisition_queue, acquisition_tasks_for_hypothesis
 from .camera_api import router as camera_router
 from .database import HypothesisRevisionRow, HypothesisRow, ScoreJobRow, ScoreResultRow, SessionLocal
+from .lead_api import router as lead_router
 from .ledger import ledger_entries_for_subject, verify_ledger_chain
 from .models import Camera, CorrelatedIncidentPackage, NormalizedEvent
 from .persistence_service import PersistentCorrelationService
@@ -14,18 +15,20 @@ from .service import CrossSourceCorrelationService
 
 app = FastAPI(
     title="G-CCI Cross-Source Event Correlation Service",
-    version="1.4.0",
+    version="1.5.0",
     description=(
         "Correlates transportation-event records across independent sources, persists "
         "normalized events and versioned incident hypotheses in PostgreSQL/PostGIS, "
         "queues material hypothesis revisions for canonical G-CCI scoring, persists "
         "camera inventory and revision-specific camera candidates, ranks evidence-development "
-        "work by expected information gain and case opportunity, and writes revisions, scores, "
-        "camera discovery, and acquisition priorities into an append-only decision ledger. "
-        "It does not identify people or authorize outreach."
+        "work by expected information gain, qualifies truck-case opportunities, and ranks "
+        "lawful evidence sources for claimant resolution. It preserves decision provenance "
+        "in an append-only ledger and never treats case value, correlation, or a guessed "
+        "identity as permission to contact a person."
     ),
 )
 app.include_router(camera_router)
+app.include_router(lead_router)
 
 analysis_service = CrossSourceCorrelationService()
 persistence_service = PersistentCorrelationService()
@@ -78,7 +81,7 @@ def _task_json(row) -> dict:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "gcci-cross-source-correlation", "version": "1.4.0"}
+    return {"status": "ok", "service": "gcci-cross-source-correlation", "version": "1.5.0"}
 
 
 @app.post("/correlate", response_model=CorrelateResponse)
