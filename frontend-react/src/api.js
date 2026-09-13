@@ -18,6 +18,8 @@ export const gcciApi = {
   // Canonical TypeScript runtime.
   ontology: () => request(API_BASE, "/api/ontology"),
   ledgerIntegrity: () => request(API_BASE, "/api/ledger/integrity"),
+  complianceGate: (subjectId) =>
+    request(API_BASE, `/api/compliance/${encodeURIComponent(subjectId)}/gate`),
 
   // Durable PostgreSQL/PostGIS correlation runtime.
   hypothesis: (hypothesisId) =>
@@ -49,5 +51,28 @@ export const gcciApi = {
       CORRELATION_API_BASE,
       `/hypotheses/${encodeURIComponent(hypothesisId)}/cameras/refresh`,
       { method: "POST" },
+    ),
+
+  // Lead Qualification & Resolution Engine.
+  leadQualification: (hypothesisId) =>
+    request(CORRELATION_API_BASE, `/hypotheses/${encodeURIComponent(hypothesisId)}/qualification`),
+  refreshLeadQualification: (hypothesisId) =>
+    request(
+      CORRELATION_API_BASE,
+      `/hypotheses/${encodeURIComponent(hypothesisId)}/qualification/refresh`,
+      { method: "POST" },
+    ),
+  resolutionTasks: (hypothesisId, openOnly = true) =>
+    request(
+      CORRELATION_API_BASE,
+      `/hypotheses/${encodeURIComponent(hypothesisId)}/resolution-tasks?open_only=${openOnly ? "true" : "false"}`,
+    ),
+  prospects: (hypothesisId) =>
+    request(CORRELATION_API_BASE, `/hypotheses/${encodeURIComponent(hypothesisId)}/prospects`),
+  recordProspectEvidence: (hypothesisId, evidence) =>
+    request(
+      CORRELATION_API_BASE,
+      `/hypotheses/${encodeURIComponent(hypothesisId)}/prospects/evidence`,
+      { method: "POST", body: JSON.stringify(evidence) },
     ),
 };
