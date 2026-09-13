@@ -36,6 +36,11 @@ app = FastAPI(
         "from becoming outreach authorization."
     ),
 )
+# Starlette builds middleware in reverse registration order. Register authentication
+# first and CORS last so CORS is outermost and can answer browser OPTIONS preflights
+# before bearer authentication runs.
+app.add_middleware(GCCIAuthMiddleware)
+app.add_middleware(RequestContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -44,8 +49,6 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     expose_headers=["X-Request-ID"],
 )
-app.add_middleware(RequestContextMiddleware)
-app.add_middleware(GCCIAuthMiddleware)
 app.include_router(ops_router)
 app.include_router(camera_router)
 app.include_router(lead_router)
