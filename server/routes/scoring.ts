@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { timingSafeEqual } from "crypto";
 import { scoreIntake, ScoreIntakeInput } from "../ai/scoring";
 
 export const scoringRouter = Router();
@@ -27,8 +28,24 @@ function validateScoreInput(input: any): string[] {
   return errors;
 }
 
+function authorized(req: Request): boolean {
+  if (process.env.NODE_ENV !== "production") return true;
+  const expected = process.env.GCCI_INTERNAL_SERVICE_TOKEN;
+  if (!expected) return false;
+  const header = req.header("authorization") || "";
+  if (!header.toLowerCase().startsWith("bearer ")) return false;
+  const supplied = header.slice(7).trim();
+  const a = Buffer.from(supplied);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 /** Internal canonical scoring endpoint. It performs no contact-eligibility decision. */
 scoringRouter.post("/score", (req: Request, res: Response) => {
+  if (!authorized(req)) {
+    return res.status(401).json({ error: "unauthorized_internal_service" });
+  }
+
   const errors = validateScoreInput(req.body);
   if (errors.length) return res.status(400).json({ error: "invalid_score_input", details: errors });
 
