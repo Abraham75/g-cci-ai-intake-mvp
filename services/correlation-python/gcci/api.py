@@ -5,8 +5,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from .acquisition import acquisition_queue, acquisition_tasks_for_hypothesis
+from .auth_middleware import GCCIAuthMiddleware
 from .camera_api import router as camera_router
 from .compliance_api import router as compliance_router
+from .config import settings
 from .database import HypothesisRevisionRow, HypothesisRow, ScoreJobRow, ScoreResultRow, SessionLocal
 from .lead_api import router as lead_router
 from .ledger import ledger_entries_for_subject, verify_ledger_chain
@@ -18,6 +20,9 @@ from .service import CrossSourceCorrelationService
 app = FastAPI(
     title="G-CCI Cross-Source Event Correlation Service",
     version="1.5.0",
+    docs_url=None if settings.environment.lower() == "production" else "/docs",
+    redoc_url=None if settings.environment.lower() == "production" else "/redoc",
+    openapi_url=None if settings.environment.lower() == "production" else "/openapi.json",
     description=(
         "Correlates transportation-event records across independent sources, persists "
         "normalized events and versioned incident hypotheses in PostgreSQL/PostGIS, "
@@ -29,6 +34,7 @@ app = FastAPI(
         "from becoming outreach authorization."
     ),
 )
+app.add_middleware(GCCIAuthMiddleware)
 app.include_router(ops_router)
 app.include_router(camera_router)
 app.include_router(lead_router)
