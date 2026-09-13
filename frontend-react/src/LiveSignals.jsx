@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Camera, RefreshCw, ShieldCheck, Truck, MapPin, ArrowRight } from "lucide-react";
-
-const API_BASE = import.meta.env.VITE_GCCI_API_BASE || "http://127.0.0.1:3001";
+import { gcciApi } from "./api.js";
 
 export default function LiveSignals({ onOpenCase }) {
   const [data, setData] = useState({ signals: [], sourceStatus: [] });
@@ -11,9 +10,7 @@ export default function LiveSignals({ onOpenCase }) {
   const load = async () => {
     setLoading(true); setError("");
     try {
-      const response = await fetch(`${API_BASE}/api/signals/live`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setData(await response.json());
+      setData(await gcciApi.liveSignals());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown source error");
     } finally { setLoading(false); }
@@ -49,9 +46,6 @@ export default function LiveSignals({ onOpenCase }) {
 
       <div className="space-y-3">
         {data.signals.map((s) => {
-          // The live public-signal endpoint may or may not already have a persisted
-          // IncidentHypothesis. We only expose the drill-down action when it provides
-          // an authoritative hypothesis identifier; the UI never invents one.
           const hypothesisId = s.hypothesisId || s.incidentHypothesisId || s.hypothesis?.id;
           return <div key={s.id} className="bg-[#0f1f38] border border-slate-800 rounded-xl p-4">
             <div className="flex items-start justify-between gap-4"><div><div className="flex items-center gap-2"><span className="font-semibold text-slate-100">{s.event.eventType}</span>{s.event.commercialVehicleHint && <span className="text-[10px] px-2 py-0.5 rounded bg-amber-900/50 text-amber-300">CMV SIGNAL</span>}</div><div className="text-[12px] text-slate-500 mt-1 flex flex-wrap gap-3">{s.event.roadway && <span>{s.event.roadway}</span>}{s.event.direction && <span>{s.event.direction}</span>}{s.event.point && <span className="flex items-center gap-1"><MapPin size={11}/>{s.event.point.latitude.toFixed(4)}, {s.event.point.longitude.toFixed(4)}</span>}</div></div><div className="text-right"><div className="text-2xl font-bold text-amber-400">{Math.round(s.score * 100)}</div><div className="text-[10px] text-slate-500">Tier {s.tier}</div></div></div>
