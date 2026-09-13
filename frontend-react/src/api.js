@@ -1,10 +1,16 @@
 const API_BASE = import.meta.env.VITE_GCCI_API_BASE || "http://127.0.0.1:3001";
 const CORRELATION_API_BASE =
   import.meta.env.VITE_GCCI_CORRELATION_API_BASE || "http://127.0.0.1:8000";
+const AUTH_TOKEN = import.meta.env.VITE_GCCI_AUTH_TOKEN || "";
 
 async function request(base, path, options = {}) {
+  const authHeaders = AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {};
   const response = await fetch(`${base}${path}`, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders,
+      ...(options.headers || {}),
+    },
     ...options,
   });
   if (!response.ok) {
@@ -18,8 +24,6 @@ export const gcciApi = {
   // Canonical TypeScript runtime.
   ontology: () => request(API_BASE, "/api/ontology"),
   ledgerIntegrity: () => request(API_BASE, "/api/ledger/integrity"),
-  complianceGate: (subjectId) =>
-    request(API_BASE, `/api/compliance/${encodeURIComponent(subjectId)}/gate`),
 
   // Durable PostgreSQL/PostGIS correlation runtime.
   hypothesis: (hypothesisId) =>
@@ -38,6 +42,8 @@ export const gcciApi = {
   subjectLedger: (subjectId) =>
     request(CORRELATION_API_BASE, `/ledger/subject/${encodeURIComponent(subjectId)}`),
   persistentLedgerIntegrity: () => request(CORRELATION_API_BASE, "/ledger/integrity"),
+  readiness: () => request(CORRELATION_API_BASE, "/health/ready"),
+  metrics: () => request(CORRELATION_API_BASE, "/metrics"),
 
   // Persistent PostGIS camera intelligence.
   cameraStatus: () => request(CORRELATION_API_BASE, "/cameras/status"),
@@ -74,5 +80,35 @@ export const gcciApi = {
       CORRELATION_API_BASE,
       `/hypotheses/${encodeURIComponent(hypothesisId)}/prospects/evidence`,
       { method: "POST", body: JSON.stringify(evidence) },
+    ),
+
+  // Durable compliance and encrypted contact vault.
+  complianceGate: (hypothesisId) =>
+    request(CORRELATION_API_BASE, `/hypotheses/${encodeURIComponent(hypothesisId)}/compliance`),
+  reviewCompliance: (hypothesisId, review) =>
+    request(
+      CORRELATION_API_BASE,
+      `/hypotheses/${encodeURIComponent(hypothesisId)}/compliance/review`,
+      { method: "POST", body: JSON.stringify(review) },
+    ),
+  contacts: (hypothesisId) =>
+    request(CORRELATION_API_BASE, `/hypotheses/${encodeURIComponent(hypothesisId)}/contacts`),
+  addContact: (hypothesisId, contact) =>
+    request(
+      CORRELATION_API_BASE,
+      `/hypotheses/${encodeURIComponent(hypothesisId)}/contacts`,
+      { method: "POST", body: JSON.stringify(contact) },
+    ),
+  revealContact: (contactId, reason) =>
+    request(
+      CORRELATION_API_BASE,
+      `/contacts/${encodeURIComponent(contactId)}/reveal`,
+      { method: "POST", body: JSON.stringify({ reason }) },
+    ),
+  activateOutreach: (hypothesisId) =>
+    request(
+      CORRELATION_API_BASE,
+      `/hypotheses/${encodeURIComponent(hypothesisId)}/activate`,
+      { method: "POST" },
     ),
 };
