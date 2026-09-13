@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 
-from .database import ScoreResultRow, SessionLocal
+from .database import DecisionLedgerRow, ScoreResultRow, SessionLocal
 from .lead_qualification import (
     STAGE_SCORE,
     build_lead_qualification_for_score,
@@ -168,15 +168,13 @@ async def record_prospect_evidence(
                 if body.lawful_access_basis == "NotEstablished":
                     raise HTTPException(400, "VERIFIED requires an established lawful access basis")
 
-            # All evidence IDs must actually exist in the durable ledger; arbitrary client
-            # strings cannot be used to manufacture a verification chain.
-            evidence_count = (
+            unique_evidence_ids = list(dict.fromkeys(body.evidence_entry_ids))
+            existing_evidence_ids = (
                 await session.execute(
-                    text("SELECT count(*) FROM decision_ledger WHERE id = ANY(:ids)"),
-                    {"ids": body.evidence_entry_ids},
+                    select(DecisionLedgerRow.id).where(DecisionLedgerRow.id.in_(unique_evidence_ids))
                 )
-            ).scalar_one()
-            if int(evidence_count) != len(set(body.evidence_entry_ids)):
+            ).scalars().all()
+            if len(existing_evidence_ids) != len(unique_evidence_ids):
                 raise HTTPException(400, "Every evidence_entry_id must reference an existing ledger entry")
 
             record_id = str(existing["id"]) if existing else str(uuid4())
@@ -184,7 +182,7 @@ async def record_prospect_evidence(
                 {
                     "reviewedBy": actor.name,
                     "note": body.note,
-                    "evidenceEntryIds": body.evidence_entry_ids,
+                    "evidenceEntryIds": unique_evidence_ids,
                     "stage": body.target_stage,
                 }
             ]
@@ -248,8 +246,8 @@ async def record_prospect_evidence(
                     },
                 },
                 produced_by=f"human:{actor.name}",
-                source_system="POST:/hypotheses/:id/prospects/evidence",
-                input_entry_ids=body.evidence_entry_ids,
+                sourceSystem="POST:/hypotheses/:id/prospects/evidence",
+                input_entry_ids=unique_evidence_ids,
             )
 
             score = await _latest_score(session, hypothesis_id)
