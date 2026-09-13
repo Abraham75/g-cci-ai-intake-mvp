@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -15,6 +16,7 @@ from .ledger import ledger_entries_for_subject, verify_ledger_chain
 from .models import Camera, CorrelatedIncidentPackage, NormalizedEvent
 from .ops_api import router as ops_router
 from .persistence_service import PersistentCorrelationService
+from .request_context import RequestContextMiddleware
 from .service import CrossSourceCorrelationService
 
 app = FastAPI(
@@ -34,6 +36,15 @@ app = FastAPI(
         "from becoming outreach authorization."
     ),
 )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    expose_headers=["X-Request-ID"],
+)
+app.add_middleware(RequestContextMiddleware)
 app.add_middleware(GCCIAuthMiddleware)
 app.include_router(ops_router)
 app.include_router(camera_router)
