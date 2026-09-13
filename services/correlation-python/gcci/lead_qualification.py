@@ -11,7 +11,7 @@ from .database import DecisionLedgerRow, ScoreJobRow, ScoreResultRow
 from .ledger import append_ledger_entry
 
 
-LEAD_QUALIFICATION_MODEL_VERSION = "gcci-lead-qualification-v1.0.0"
+LEAD_QUALIFICATION_MODEL_VERSION = "gcci-lead-qualification-v1.0.1"
 RESOLUTION_PRIORITY_MODEL_VERSION = "gcci-prospect-resolution-v1.0.0"
 
 STAGE_SCORE = {
@@ -224,7 +224,7 @@ def _qualification_decision(
 
     strong_path = score >= 0.65
     exceptional_path = score >= 0.55 and injury >= 0.60 and liability >= 0.60 and collectability >= 0.55
-    minimum_gates = injury >= 0.35 and liability >= 0.35 and collectability >= 0.45 and evidence >= 0.25
+    minimum_gates = injury >= 0.35 and liability >= 0.35 and collectability >= 0.55 and evidence >= 0.25
     case_qualified = (strong_path or exceptional_path) and minimum_gates and high_contradictions == 0
 
     if case_qualified:
