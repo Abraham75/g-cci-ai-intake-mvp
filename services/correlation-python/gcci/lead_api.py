@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 
@@ -14,9 +15,13 @@ from .lead_qualification import (
     resolution_tasks_for_hypothesis,
 )
 from .ledger import append_ledger_entry
+from .security import Actor, require_roles
 
 
-router = APIRouter(tags=["lead-qualification-resolution"])
+router = APIRouter(
+    tags=["lead-qualification-resolution"],
+    dependencies=[Depends(require_roles("INVESTIGATOR", "ATTORNEY", "COMPLIANCE", "AUDITOR"))],
+)
 
 
 class ProspectEvidenceInput(BaseModel):
@@ -29,7 +34,6 @@ class ProspectEvidenceInput(BaseModel):
     lawful_access_basis: str = Field(min_length=1, max_length=64)
     evidence_entry_ids: list[str] = Field(min_length=1, max_length=50)
     note: str | None = Field(default=None, max_length=2000)
-    reviewed_by: str = Field(min_length=1, max_length=255)
 
 
 _STAGE_ORDER = ["UNKNOWN", "CANDIDATE", "CORROBORATED", "VERIFIED"]
@@ -127,13 +131,12 @@ async def get_prospects(hypothesis_id: str) -> list[dict]:
 
 
 @router.post("/hypotheses/{hypothesis_id}/prospects/evidence")
-async def record_prospect_evidence(hypothesis_id: str, body: ProspectEvidenceInput) -> dict:
-    """Record evidence-backed claimant resolution without guessing identity/contact values.
-
-    Advancement is monotonic and requires ledger evidence references. VERIFIED is
-    allowed only for a high-confidence authoritative review with a lawful access basis.
-    Contact eligibility is never evaluated here.
-    """
+async def record_prospect_evidence(
+    hypothesis_id: str,
+    body: ProspectEvidenceInput,
+    actor: Actor = Depends(require_roles("INVESTIGATOR", "ATTORNEY", "COMPLIANCE")),
+) -> dict:
+    """Advance claimant resolution using referenced evidence and authenticated review identity."""
     target_index = _STAGE_ORDER.index(body.target_stage)
     async with SessionLocal() as session:
         async with session.begin():
@@ -165,10 +168,21 @@ async def record_prospect_evidence(hypothesis_id: str, body: ProspectEvidenceInp
                 if body.lawful_access_basis == "NotEstablished":
                     raise HTTPException(400, "VERIFIED requires an established lawful access basis")
 
+            # All evidence IDs must actually exist in the durable ledger; arbitrary client
+            # strings cannot be used to manufacture a verification chain.
+            evidence_count = (
+                await session.execute(
+                    text("SELECT count(*) FROM decision_ledger WHERE id = ANY(:ids)"),
+                    {"ids": body.evidence_entry_ids},
+                )
+            ).scalar_one()
+            if int(evidence_count) != len(set(body.evidence_entry_ids)):
+                raise HTTPException(400, "Every evidence_entry_id must reference an existing ledger entry")
+
             record_id = str(existing["id"]) if existing else str(uuid4())
             notes = [
                 {
-                    "reviewedBy": body.reviewed_by,
+                    "reviewedBy": actor.name,
                     "note": body.note,
                     "evidenceEntryIds": body.evidence_entry_ids,
                     "stage": body.target_stage,
@@ -209,7 +223,7 @@ async def record_prospect_evidence(hypothesis_id: str, body: ProspectEvidenceInp
                     "confidence": body.confidence,
                     "verified": body.target_stage == "VERIFIED",
                     "lawful_access_basis": body.lawful_access_basis,
-                    "notes": __import__("json").dumps(notes),
+                    "notes": json.dumps(notes),
                 },
             )
 
@@ -227,13 +241,13 @@ async def record_prospect_evidence(hypothesis_id: str, body: ProspectEvidenceInp
                     "sourceReference": body.source_reference,
                     "confidence": body.confidence,
                     "lawfulAccessBasis": body.lawful_access_basis,
-                    "reviewedBy": body.reviewed_by,
+                    "reviewedBy": actor.name,
                     "policy": {
                         "contactValueStored": False,
                         "contactEligibilityEvaluated": False,
                     },
                 },
-                produced_by=f"human:{body.reviewed_by}",
+                produced_by=f"human:{actor.name}",
                 source_system="POST:/hypotheses/:id/prospects/evidence",
                 input_entry_ids=body.evidence_entry_ids,
             )
