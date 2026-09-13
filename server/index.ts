@@ -6,11 +6,13 @@ import ontologyRoute from "./routes/ontology";
 import { contradictionsRouter } from "./ai/contradictions";
 import { signalsRouter } from "./routes/signals";
 import { scoringRouter } from "./routes/scoring";
+import { apiAuth } from "./security/auth";
 
 const app = express();
 app.disable("x-powered-by");
 app.use(cors());
 app.use(bodyParser.json({ limit: "5mb" }));
+app.use(apiAuth);
 
 app.get("/health/live", (_req: Request, res: Response) => {
   return res.json({ status: "ok", service: "gcci-canonical-typescript-runtime" });
