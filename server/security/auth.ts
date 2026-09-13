@@ -31,6 +31,13 @@ export function apiAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ error: "bearer_token_required" });
   }
   const supplied = header.slice(7).trim();
+
+  const internal = process.env.GCCI_INTERNAL_SERVICE_TOKEN || "";
+  if (internal && safeEqual(supplied, internal)) {
+    (res.locals as { actor?: Identity }).actor = { role: "SERVICE", name: "gcci-internal-service" };
+    return next();
+  }
+
   const tokens = configuredTokens();
   for (const [token, identityString] of Object.entries(tokens)) {
     if (!safeEqual(supplied, token)) continue;
