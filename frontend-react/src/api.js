@@ -1,10 +1,19 @@
 const API_BASE = import.meta.env.VITE_GCCI_API_BASE || "http://127.0.0.1:3001";
 const CORRELATION_API_BASE =
   import.meta.env.VITE_GCCI_CORRELATION_API_BASE || "http://127.0.0.1:8000";
-const AUTH_TOKEN = import.meta.env.VITE_GCCI_AUTH_TOKEN || "";
+const DEV_AUTH_TOKEN = import.meta.env.DEV ? (import.meta.env.VITE_GCCI_AUTH_TOKEN || "") : "";
+
+function runtimeAuthToken() {
+  try {
+    return window.sessionStorage.getItem("gcci_access_token") || DEV_AUTH_TOKEN;
+  } catch {
+    return DEV_AUTH_TOKEN;
+  }
+}
 
 async function request(base, path, options = {}) {
-  const authHeaders = AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {};
+  const authToken = runtimeAuthToken();
+  const authHeaders = authToken ? { Authorization: `Bearer ${authToken}` } : {};
   const response = await fetch(`${base}${path}`, {
     headers: {
       "Content-Type": "application/json",
@@ -18,6 +27,14 @@ async function request(base, path, options = {}) {
     throw new Error(`${response.status} ${response.statusText}: ${text}`);
   }
   return response.json();
+}
+
+export function setRuntimeAccessToken(token) {
+  window.sessionStorage.setItem("gcci_access_token", token);
+}
+
+export function clearRuntimeAccessToken() {
+  window.sessionStorage.removeItem("gcci_access_token");
 }
 
 export const gcciApi = {
