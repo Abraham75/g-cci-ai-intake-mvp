@@ -246,7 +246,7 @@ async def record_prospect_evidence(
                     },
                 },
                 produced_by=f"human:{actor.name}",
-                sourceSystem="POST:/hypotheses/:id/prospects/evidence",
+                source_system="POST:/hypotheses/:id/prospects/evidence",
                 input_entry_ids=unique_evidence_ids,
             )
 
