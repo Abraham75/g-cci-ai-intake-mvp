@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { BarChart3, BriefcaseBusiness, Radio, Server, Scale, ShieldCheck } from "lucide-react";
 import CaseIntelligenceDetail from "./CaseIntelligenceDetail.jsx";
 import LeadQualificationWorkspace from "./LeadQualificationWorkspace.jsx";
+import ContactComplianceVault from "./ContactComplianceVault.jsx";
 import DecisionEconomicsDashboard from "./DecisionEconomicsDashboard.jsx";
 import PlatformStatus from "./PlatformStatus.jsx";
 import LiveSignals from "./LiveSignals.jsx";
@@ -40,7 +41,7 @@ export default function App() {
         </nav>
         <div className="mt-auto p-4 border-t border-slate-800 text-[10px] text-slate-600 leading-relaxed">
           <div className="flex items-center gap-1.5 text-slate-500 mb-1"><ShieldCheck size={12} /> Compliance-first intelligence</div>
-          Correlation, causation, attribution, case value, lead qualification, identity resolution, and contact eligibility remain separate decisions.
+          Correlation, causation, attribution, case value, lead qualification, identity resolution, contact storage, and outreach eligibility remain separate decisions.
         </div>
       </aside>
 
@@ -55,6 +56,7 @@ export default function App() {
             <>
               <CaseIntelligenceDetail hypothesisId={selectedHypothesisId} onBack={() => setView("signals")} />
               {selectedHypothesisId && <LeadQualificationWorkspace hypothesisId={selectedHypothesisId} />}
+              {selectedHypothesisId && <ContactComplianceVault hypothesisId={selectedHypothesisId} />}
             </>
           )}
           {view === "economics" && <DecisionEconomicsDashboard />}
