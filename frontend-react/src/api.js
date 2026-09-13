@@ -1,18 +1,10 @@
-const API_BASE = import.meta.env.VITE_GCCI_API_BASE || "http://127.0.0.1:3001";
+import { getAccessToken } from "./auth.js";
+
 const CORRELATION_API_BASE =
   import.meta.env.VITE_GCCI_CORRELATION_API_BASE || "http://127.0.0.1:8000";
-const DEV_AUTH_TOKEN = import.meta.env.DEV ? (import.meta.env.VITE_GCCI_AUTH_TOKEN || "") : "";
-
-function runtimeAuthToken() {
-  try {
-    return window.sessionStorage.getItem("gcci_access_token") || DEV_AUTH_TOKEN;
-  } catch {
-    return DEV_AUTH_TOKEN;
-  }
-}
 
 async function request(base, path, options = {}) {
-  const authToken = runtimeAuthToken();
+  const authToken = await getAccessToken();
   const authHeaders = authToken ? { Authorization: `Bearer ${authToken}` } : {};
   const response = await fetch(`${base}${path}`, {
     headers: {
@@ -29,20 +21,16 @@ async function request(base, path, options = {}) {
   return response.json();
 }
 
-export function setRuntimeAccessToken(token) {
-  window.sessionStorage.setItem("gcci_access_token", token);
-}
-
-export function clearRuntimeAccessToken() {
-  window.sessionStorage.removeItem("gcci_access_token");
-}
-
 export const gcciApi = {
-  // Canonical TypeScript runtime.
-  ontology: () => request(API_BASE, "/api/ontology"),
-  ledgerIntegrity: () => request(API_BASE, "/api/ledger/integrity"),
+  // Single external API boundary. The Python service proxies safe internal runtime reads.
+  ontology: () => request(CORRELATION_API_BASE, "/runtime/ontology"),
+  liveSignals: () => request(CORRELATION_API_BASE, "/signals/live"),
+  readiness: () => request(CORRELATION_API_BASE, "/health/ready"),
+  dependencyHealth: () => request(CORRELATION_API_BASE, "/health/dependencies"),
+  metrics: () => request(CORRELATION_API_BASE, "/metrics"),
+  ledgerIntegrity: () => request(CORRELATION_API_BASE, "/ledger/integrity"),
+  persistentLedgerIntegrity: () => request(CORRELATION_API_BASE, "/ledger/integrity"),
 
-  // Durable PostgreSQL/PostGIS correlation runtime.
   hypothesis: (hypothesisId) =>
     request(CORRELATION_API_BASE, `/hypotheses/${encodeURIComponent(hypothesisId)}`),
   hypothesisRevisions: (hypothesisId) =>
@@ -58,11 +46,7 @@ export const gcciApi = {
     ),
   subjectLedger: (subjectId) =>
     request(CORRELATION_API_BASE, `/ledger/subject/${encodeURIComponent(subjectId)}`),
-  persistentLedgerIntegrity: () => request(CORRELATION_API_BASE, "/ledger/integrity"),
-  readiness: () => request(CORRELATION_API_BASE, "/health/ready"),
-  metrics: () => request(CORRELATION_API_BASE, "/metrics"),
 
-  // Persistent PostGIS camera intelligence.
   cameraStatus: () => request(CORRELATION_API_BASE, "/cameras/status"),
   hypothesisCameras: (hypothesisId, currentOnly = true) =>
     request(
@@ -76,7 +60,6 @@ export const gcciApi = {
       { method: "POST" },
     ),
 
-  // Lead Qualification & Resolution Engine.
   leadQualification: (hypothesisId) =>
     request(CORRELATION_API_BASE, `/hypotheses/${encodeURIComponent(hypothesisId)}/qualification`),
   refreshLeadQualification: (hypothesisId) =>
@@ -99,7 +82,6 @@ export const gcciApi = {
       { method: "POST", body: JSON.stringify(evidence) },
     ),
 
-  // Durable compliance and encrypted contact vault.
   complianceGate: (hypothesisId) =>
     request(CORRELATION_API_BASE, `/hypotheses/${encodeURIComponent(hypothesisId)}/compliance`),
   reviewCompliance: (hypothesisId, review) =>
@@ -115,6 +97,12 @@ export const gcciApi = {
       CORRELATION_API_BASE,
       `/hypotheses/${encodeURIComponent(hypothesisId)}/contacts`,
       { method: "POST", body: JSON.stringify(contact) },
+    ),
+  setContactStatus: (contactId, status, reason) =>
+    request(
+      CORRELATION_API_BASE,
+      `/contacts/${encodeURIComponent(contactId)}/status`,
+      { method: "POST", body: JSON.stringify({ status, reason }) },
     ),
   revealContact: (contactId, reason) =>
     request(
