@@ -23,8 +23,10 @@ jobs:
           node-version: "20"
       - name: Install Node dependencies
         run: npm install
-      - name: TypeScript build
+      - name: TypeScript typecheck
         run: npm run build
+      - name: Compile production server artifact
+        run: npm run build:server
 
   frontend-build:
     runs-on: ubuntu-latest
@@ -92,13 +94,14 @@ jobs:
         run: |
           npm install
           npm run build
+          npm run build:server
 
-      - name: Start authenticated canonical scorer
+      - name: Start authenticated compiled canonical scorer
         env:
           NODE_ENV: production
           GCCI_INTERNAL_SERVICE_TOKEN: gcci-ci-internal-service-token
         run: |
-          nohup npm run server >/tmp/gcci-scorer.log 2>&1 &
+          nohup npm run start:server >/tmp/gcci-scorer.log 2>&1 &
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:3001/health/live >/dev/null; then
               exit 0
