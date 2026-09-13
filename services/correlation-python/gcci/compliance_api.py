@@ -14,7 +14,6 @@ from .database import SessionLocal
 from .ledger import append_ledger_entry
 from .security import Actor, require_roles
 
-
 router = APIRouter(tags=["compliance-contact-vault"])
 
 LegalAccessBasis = Literal[
@@ -30,6 +29,7 @@ SolicitationReviewStatus = Literal[
     "ClearedByCounsel",
     "RejectedByCounsel",
 ]
+ContactStatus = Literal["ACTIVE", "SUPPRESSED", "REVOKED"]
 
 
 class ComplianceReviewInput(BaseModel):
@@ -52,6 +52,11 @@ class ContactPointInput(BaseModel):
 
 
 class RevealInput(BaseModel):
+    reason: str = Field(min_length=8, max_length=1000)
+
+
+class ContactStatusInput(BaseModel):
+    status: ContactStatus
     reason: str = Field(min_length=8, max_length=1000)
 
 
@@ -113,10 +118,12 @@ async def _latest_qualification(session, hypothesis_id: str) -> dict | None:
         await session.execute(
             text(
                 """
-                SELECT revision, stage, case_qualified, qualification_score
-                FROM lead_qualification_snapshots
-                WHERE hypothesis_id = :hypothesis_id
-                ORDER BY revision DESC
+                SELECT l.revision, l.stage, l.case_qualified, l.qualification_score,
+                       h.current_revision
+                FROM lead_qualification_snapshots l
+                JOIN incident_hypotheses h ON h.id = l.hypothesis_id
+                WHERE l.hypothesis_id = :hypothesis_id
+                ORDER BY l.revision DESC
                 LIMIT 1
                 """
             ),
@@ -125,12 +132,28 @@ async def _latest_qualification(session, hypothesis_id: str) -> dict | None:
     ).mappings().first()
     if row is None:
         return None
+    revision = int(row["revision"])
+    current_revision = int(row["current_revision"])
     return {
-        "revision": int(row["revision"]),
+        "revision": revision,
+        "currentHypothesisRevision": current_revision,
+        "isCurrent": revision == current_revision,
         "stage": row["stage"],
         "caseQualified": bool(row["case_qualified"]),
         "qualificationScore": float(row["qualification_score"]),
     }
+
+
+def _outreach_ready(qualification: dict | None, gate: dict, prospect: object, contact: object) -> bool:
+    return bool(
+        qualification
+        and qualification["isCurrent"]
+        and qualification["caseQualified"]
+        and qualification["stage"] == "S3_RESOLVED_PROSPECT"
+        and gate["contactEligibilityStatus"] == "Eligible"
+        and prospect
+        and contact
+    )
 
 
 @router.get("/hypotheses/{hypothesis_id}/compliance")
@@ -299,7 +322,7 @@ async def add_contact(
                     await session.execute(
                         text(
                             """
-                            SELECT id, party_role, stage
+                            SELECT id, party_role, stage, lawful_access_basis
                             FROM prospect_resolution_records
                             WHERE id = :prospect_id AND hypothesis_id = :hypothesis_id
                             """
@@ -311,6 +334,8 @@ async def add_contact(
                     raise HTTPException(404, "Unknown prospect for hypothesis")
                 if prospect["party_role"] != "INJURED_PARTY" or prospect["stage"] != "VERIFIED":
                     raise HTTPException(409, "Contact storage requires a VERIFIED injured-party prospect")
+                if prospect["lawful_access_basis"] == "NotEstablished":
+                    raise HTTPException(409, "Verified prospect is missing a lawful-access basis")
 
                 await session.execute(
                     text(
@@ -374,6 +399,46 @@ async def add_contact(
     return {"id": contact_id, "maskedValue": masked, "status": "ACTIVE"}
 
 
+@router.post("/contacts/{contact_id}/status")
+async def set_contact_status(
+    contact_id: str,
+    body: ContactStatusInput,
+    actor: Actor = Depends(require_roles("COMPLIANCE")),
+) -> dict:
+    async with SessionLocal() as session:
+        async with session.begin():
+            row = (
+                await session.execute(
+                    text(
+                        """
+                        UPDATE contact_points
+                        SET status = :status, updated_at = now()
+                        WHERE id = :id
+                        RETURNING hypothesis_id, masked_value, status
+                        """
+                    ),
+                    {"id": contact_id, "status": body.status},
+                )
+            ).mappings().first()
+            if row is None:
+                raise HTTPException(404, "Unknown contact point")
+            await append_ledger_entry(
+                session,
+                entry_type="ContactResolution",
+                subject_id=row["hypothesis_id"],
+                payload={
+                    "action": "contact-status-changed",
+                    "contactPointId": contact_id,
+                    "maskedValue": row["masked_value"],
+                    "newStatus": body.status,
+                    "reason": body.reason,
+                },
+                produced_by=f"human:{actor.name}",
+                source_system="encrypted-contact-vault",
+            )
+    return {"id": contact_id, "status": body.status}
+
+
 @router.post("/contacts/{contact_id}/reveal")
 async def reveal_contact(
     contact_id: str,
@@ -383,8 +448,6 @@ async def reveal_contact(
     allowed = False
     audit_id = str(uuid4())
     row = None
-    gate = None
-    qualification = None
 
     async with SessionLocal() as session:
         async with session.begin():
@@ -415,6 +478,7 @@ async def reveal_contact(
                 and row["party_role"] == "INJURED_PARTY"
                 and row["prospect_stage"] == "VERIFIED"
                 and qualification
+                and qualification["isCurrent"]
                 and qualification["caseQualified"]
                 and qualification["stage"] == "S3_RESOLVED_PROSPECT"
                 and gate["contactEligibilityStatus"] == "Eligible"
@@ -452,7 +516,8 @@ async def reveal_contact(
                     "allowed": allowed,
                     "reason": body.reason,
                     "gateStatus": gate["contactEligibilityStatus"],
-                    "qualificationStage": qualification["stage"] if qualification else None,
+                    "qualificationRevision": qualification["revision"] if qualification else None,
+                    "qualificationCurrent": qualification["isCurrent"] if qualification else False,
                 },
                 produced_by=f"human:{actor.name}",
                 source_system="encrypted-contact-vault",
@@ -526,15 +591,12 @@ async def activate_for_outreach(
                     )
                 ).first()
 
-            allowed = bool(
-                qualification
-                and qualification["caseQualified"]
-                and qualification["stage"] == "S3_RESOLVED_PROSPECT"
-                and gate["contactEligibilityStatus"] == "Eligible"
-                and verified_prospect
-                and verified_contact
-            )
-            if not qualification or not qualification["caseQualified"] or qualification["stage"] != "S3_RESOLVED_PROSPECT":
+            allowed = _outreach_ready(qualification, gate, verified_prospect, verified_contact)
+            if not qualification:
+                reasons.append("no lead qualification exists")
+            elif not qualification["isCurrent"]:
+                reasons.append("lead qualification is stale for the current hypothesis revision")
+            elif not qualification["caseQualified"] or qualification["stage"] != "S3_RESOLVED_PROSPECT":
                 reasons.append("lead is not a qualified S3 resolved prospect")
             if gate["contactEligibilityStatus"] != "Eligible":
                 reasons.append("compliance gate not eligible")
@@ -581,5 +643,8 @@ async def activate_for_outreach(
             )
 
     if not allowed:
-        raise HTTPException(403, {"status": "BLOCKED", "reasons": reasons, "attemptId": attempt_id})
+        raise HTTPException(
+            403,
+            {"status": "BLOCKED", "reasons": reasons, "attemptId": attempt_id},
+        )
     return {"status": "ACTIVATED_FOR_ATTORNEY_OUTREACH", "attemptId": attempt_id}
