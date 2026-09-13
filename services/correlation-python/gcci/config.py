@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,20 +26,29 @@ class CorrelationWeights(BaseModel):
 
 
 class Settings(BaseSettings):
+    environment: str = "development"
+    require_auth: bool = False
+    # JSON map in env, for example:
+    # GCCI_AUTH_TOKENS='{"token1":"ATTORNEY:alice","token2":"COMPLIANCE:bob"}'
+    auth_tokens: dict[str, str] = Field(default_factory=dict)
+
+    # Base64-encoded 32-byte AES-GCM key. Contact-value writes/reveals are disabled
+    # when the key is absent, so development can run without silently storing plaintext.
+    contact_vault_key_b64: str | None = None
+    # Independent HMAC secret used only to detect duplicate contact values.
+    contact_fingerprint_key: str | None = None
+
+    internal_service_token: str | None = None
+
     candidate_time_window_seconds: int = Field(default=20 * 60, ge=30)
     candidate_radius_meters: float = Field(default=5000.0, gt=0)
     same_incident_threshold: float = Field(default=0.82, ge=0, le=1)
     related_incident_threshold: float = Field(default=0.62, ge=0, le=1)
 
-    # Camera intelligence is spatially bounded and revision-aware.  The
-    # preservation window deliberately extends beyond the current hypothesis
-    # time interval to account for source clock offsets and approach/departure
-    # footage without rewriting the observed event timestamps themselves.
     camera_search_radius_meters: float = Field(default=4000.0, gt=0)
     max_camera_results: int = Field(default=8, ge=1, le=50)
     camera_preservation_before_minutes: int = Field(default=10, ge=0, le=180)
     camera_preservation_after_minutes: int = Field(default=10, ge=0, le=180)
-
     max_gap_results: int = Field(default=10, ge=1, le=50)
 
     database_url: str = "postgresql+asyncpg://gcci:gcci@localhost:5432/gcci"
@@ -65,8 +74,19 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    def model_post_init(self, __context) -> None:
+    @model_validator(mode="after")
+    def validate_production_security(self):
         self.weights.validate_sum()
+        if self.environment.lower() == "production":
+            if not self.require_auth:
+                raise ValueError("GCCI_REQUIRE_AUTH must be true in production")
+            if not self.auth_tokens:
+                raise ValueError("GCCI_AUTH_TOKENS must be configured in production")
+            if not self.internal_service_token:
+                raise ValueError("GCCI_INTERNAL_SERVICE_TOKEN must be configured in production")
+            if not self.contact_vault_key_b64 or not self.contact_fingerprint_key:
+                raise ValueError("Contact vault encryption and fingerprint keys are required in production")
+        return self
 
 
 settings = Settings()
