@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import timedelta
 
 from sqlalchemy import or_, select
@@ -16,6 +17,7 @@ from .database import (
     SessionLocal,
     utcnow,
 )
+from .gdot_camera_source import refresh_gdot_camera_inventory
 from .lead_qualification import build_lead_qualification_for_score
 from .ledger import append_ledger_entry
 from .persistence_service import PersistentCorrelationService
@@ -224,10 +226,6 @@ async def process_score_job(job_id: str) -> None:
                     input_entry_ids=[score_entry.id],
                 )
 
-            # Lead qualification is downstream of canonical scoring. It consumes the
-            # score and persisted evidence dimensions but never grants outreach access.
-            # Prospect resolution remains UNKNOWN until evidence-backed human review
-            # advances it through CANDIDATE -> CORROBORATED -> VERIFIED.
             await build_lead_qualification_for_score(
                 session,
                 score_result=score_result,
@@ -250,10 +248,23 @@ async def process_score_job(job_id: str) -> None:
 
 async def run_forever() -> None:
     logging.basicConfig(level=logging.INFO)
-    log.info("starting G-CCI correlation + canonical scoring + lead qualification worker")
+    log.info("starting G-CCI correlation + scoring + lead qualification + camera worker")
+    next_camera_refresh = 0.0
 
     while True:
         did_work = False
+        now_monotonic = time.monotonic()
+
+        if now_monotonic >= next_camera_refresh:
+            try:
+                camera_count = await refresh_gdot_camera_inventory()
+                log.info("refreshed durable GDOT camera inventory cameras=%s", camera_count)
+                did_work = True
+                next_camera_refresh = now_monotonic + settings.camera_refresh_seconds
+            except Exception:
+                log.exception("GDOT camera inventory refresh failed; retaining last known-good inventory")
+                # Retry sooner than the normal refresh cadence, but no more often than once/minute.
+                next_camera_refresh = now_monotonic + min(60, settings.camera_refresh_seconds)
 
         rows = await fetch_pending_events(settings.worker_batch_size)
         for row in rows:
