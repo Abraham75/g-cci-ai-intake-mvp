@@ -38,10 +38,16 @@ class Settings(BaseSettings):
     # Base64-encoded 32-byte AES-GCM key. Contact-value writes/reveals are disabled
     # when the key is absent, so development can run without silently storing plaintext.
     contact_vault_key_b64: str | None = None
-    # Independent HMAC secret used only to detect duplicate contact values.
     contact_fingerprint_key: str | None = None
-
     internal_service_token: str | None = None
+
+    source_timeout_seconds: float = Field(default=8.0, gt=0, le=60)
+    gdot_camera_arcgis_url: str = (
+        "https://enterprisegis.dot.ga.gov/hosting/rest/services/"
+        "web_trafficcameras/MapServer/0/query"
+    )
+    camera_refresh_seconds: int = Field(default=300, ge=60, le=86400)
+    camera_min_expected_records: int = Field(default=10, ge=1, le=10000)
 
     candidate_time_window_seconds: int = Field(default=20 * 60, ge=30)
     candidate_radius_meters: float = Field(default=5000.0, gt=0)
