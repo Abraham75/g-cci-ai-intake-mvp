@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # JSON map in env, for example:
     # GCCI_AUTH_TOKENS='{"token1":"ATTORNEY:alice","token2":"COMPLIANCE:bob"}'
     auth_tokens: dict[str, str] = Field(default_factory=dict)
+    cors_origins: list[str] = Field(
+        default_factory=lambda: ["http://127.0.0.1:5173", "http://localhost:5173"]
+    )
 
     # Base64-encoded 32-byte AES-GCM key. Contact-value writes/reveals are disabled
     # when the key is absent, so development can run without silently storing plaintext.
@@ -86,6 +89,8 @@ class Settings(BaseSettings):
                 raise ValueError("GCCI_INTERNAL_SERVICE_TOKEN must be configured in production")
             if not self.contact_vault_key_b64 or not self.contact_fingerprint_key:
                 raise ValueError("Contact vault encryption and fingerprint keys are required in production")
+            if not self.cors_origins or "*" in self.cors_origins:
+                raise ValueError("Production CORS origins must be explicit and cannot contain '*'")
         return self
 
 
