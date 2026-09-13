@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,10 +17,24 @@ from .security import Actor, require_roles
 
 router = APIRouter(tags=["compliance-contact-vault"])
 
+LegalAccessBasis = Literal[
+    "NotEstablished",
+    "PublicRecord",
+    "OpenRecordsRequest",
+    "ClientProvided",
+    "OtherLawfulBasis",
+]
+SolicitationReviewStatus = Literal[
+    "NotReviewed",
+    "WithinHoldPeriod",
+    "ClearedByCounsel",
+    "RejectedByCounsel",
+]
+
 
 class ComplianceReviewInput(BaseModel):
-    legal_access_basis: str = Field(min_length=1, max_length=64)
-    solicitation_review_status: str = Field(min_length=1, max_length=64)
+    legal_access_basis: LegalAccessBasis
+    solicitation_review_status: SolicitationReviewStatus
     suppression_checked: bool
     solicitation_hold_days: int | None = Field(default=None, ge=0, le=3650)
     note: str | None = Field(default=None, max_length=2000)
@@ -27,11 +42,11 @@ class ComplianceReviewInput(BaseModel):
 
 class ContactPointInput(BaseModel):
     prospect_id: str = Field(min_length=1, max_length=64)
-    contact_type: str = Field(pattern="^(PHONE|EMAIL|ADDRESS|OTHER)$")
+    contact_type: Literal["PHONE", "EMAIL", "ADDRESS", "OTHER"]
     value: str = Field(min_length=1, max_length=2000)
     source_type: str = Field(min_length=1, max_length=64)
     source_reference: str = Field(min_length=1, max_length=255)
-    lawful_access_basis: str = Field(min_length=1, max_length=64)
+    lawful_access_basis: LegalAccessBasis
     verification_confidence: float = Field(ge=0, le=1)
     verified: bool = False
 
@@ -90,6 +105,31 @@ async def _gate(session, hypothesis_id: str) -> dict:
         "reviewedBy": row["reviewed_by"],
         "reviewedAt": row["reviewed_at"].isoformat() if row["reviewed_at"] else None,
         "lastUpdated": row["updated_at"].isoformat() if row["updated_at"] else None,
+    }
+
+
+async def _latest_qualification(session, hypothesis_id: str) -> dict | None:
+    row = (
+        await session.execute(
+            text(
+                """
+                SELECT revision, stage, case_qualified, qualification_score
+                FROM lead_qualification_snapshots
+                WHERE hypothesis_id = :hypothesis_id
+                ORDER BY revision DESC
+                LIMIT 1
+                """
+            ),
+            {"hypothesis_id": hypothesis_id},
+        )
+    ).mappings().first()
+    if row is None:
+        return None
+    return {
+        "revision": int(row["revision"]),
+        "stage": row["stage"],
+        "caseQualified": bool(row["case_qualified"]),
+        "qualificationScore": float(row["qualification_score"]),
     }
 
 
@@ -194,12 +234,15 @@ async def list_contacts(
             await session.execute(
                 text(
                     """
-                    SELECT id, prospect_id, contact_type, masked_value, source_type,
-                           source_reference, lawful_access_basis, verification_confidence,
-                           verified, status, created_by, created_at, updated_at
-                    FROM contact_points
-                    WHERE hypothesis_id = :hypothesis_id
-                    ORDER BY verified DESC, verification_confidence DESC, created_at DESC
+                    SELECT cp.id, cp.prospect_id, cp.contact_type, cp.masked_value,
+                           cp.source_type, cp.source_reference, cp.lawful_access_basis,
+                           cp.verification_confidence, cp.verified, cp.status,
+                           cp.created_by, cp.created_at, cp.updated_at,
+                           pr.party_role, pr.stage AS prospect_stage
+                    FROM contact_points cp
+                    JOIN prospect_resolution_records pr ON pr.id = cp.prospect_id
+                    WHERE cp.hypothesis_id = :hypothesis_id
+                    ORDER BY cp.verified DESC, cp.verification_confidence DESC, cp.created_at DESC
                     """
                 ),
                 {"hypothesis_id": hypothesis_id},
@@ -209,6 +252,8 @@ async def list_contacts(
             {
                 "id": row["id"],
                 "prospectId": row["prospect_id"],
+                "partyRole": row["party_role"],
+                "prospectStage": row["prospect_stage"],
                 "contactType": row["contact_type"],
                 "maskedValue": row["masked_value"],
                 "sourceType": row["source_type"],
@@ -231,6 +276,11 @@ async def add_contact(
     body: ContactPointInput,
     actor: Actor = Depends(require_roles("INVESTIGATOR", "COMPLIANCE")),
 ) -> dict:
+    if body.verified and body.verification_confidence < 0.90:
+        raise HTTPException(400, "A VERIFIED contact requires verification_confidence >= 0.90")
+    if body.lawful_access_basis == "NotEstablished":
+        raise HTTPException(409, "Contact storage requires an established lawful-access basis")
+
     aad = f"gcci:{hypothesis_id}:{body.prospect_id}:{body.contact_type}"
     try:
         encrypted, nonce, fingerprint, masked = encrypt_contact_value(
@@ -249,7 +299,7 @@ async def add_contact(
                     await session.execute(
                         text(
                             """
-                            SELECT id, stage
+                            SELECT id, party_role, stage
                             FROM prospect_resolution_records
                             WHERE id = :prospect_id AND hypothesis_id = :hypothesis_id
                             """
@@ -259,10 +309,8 @@ async def add_contact(
                 ).mappings().first()
                 if prospect is None:
                     raise HTTPException(404, "Unknown prospect for hypothesis")
-                if prospect["stage"] != "VERIFIED":
-                    raise HTTPException(409, "Contact storage requires a VERIFIED prospect")
-                if body.lawful_access_basis == "NotEstablished":
-                    raise HTTPException(409, "Contact storage requires an established lawful-access basis")
+                if prospect["party_role"] != "INJURED_PARTY" or prospect["stage"] != "VERIFIED":
+                    raise HTTPException(409, "Contact storage requires a VERIFIED injured-party prospect")
 
                 await session.execute(
                     text(
@@ -306,6 +354,7 @@ async def add_contact(
                         "action": "encrypted-contact-added",
                         "contactPointId": contact_id,
                         "prospectId": body.prospect_id,
+                        "partyRole": "INJURED_PARTY",
                         "contactType": body.contact_type,
                         "maskedValue": masked,
                         "sourceType": body.source_type,
@@ -335,6 +384,7 @@ async def reveal_contact(
     audit_id = str(uuid4())
     row = None
     gate = None
+    qualification = None
 
     async with SessionLocal() as session:
         async with session.begin():
@@ -342,9 +392,13 @@ async def reveal_contact(
                 await session.execute(
                     text(
                         """
-                        SELECT id, hypothesis_id, prospect_id, contact_type,
-                               encrypted_value, nonce, masked_value, status, verified
-                        FROM contact_points WHERE id = :id
+                        SELECT cp.id, cp.hypothesis_id, cp.prospect_id, cp.contact_type,
+                               cp.encrypted_value, cp.nonce, cp.masked_value,
+                               cp.status, cp.verified, pr.party_role,
+                               pr.stage AS prospect_stage
+                        FROM contact_points cp
+                        JOIN prospect_resolution_records pr ON pr.id = cp.prospect_id
+                        WHERE cp.id = :id
                         """
                     ),
                     {"id": contact_id},
@@ -354,9 +408,15 @@ async def reveal_contact(
                 raise HTTPException(404, "Unknown contact point")
 
             gate = await _gate(session, row["hypothesis_id"])
+            qualification = await _latest_qualification(session, row["hypothesis_id"])
             allowed = bool(
                 row["status"] == "ACTIVE"
                 and row["verified"]
+                and row["party_role"] == "INJURED_PARTY"
+                and row["prospect_stage"] == "VERIFIED"
+                and qualification
+                and qualification["caseQualified"]
+                and qualification["stage"] == "S3_RESOLVED_PROSPECT"
                 and gate["contactEligibilityStatus"] == "Eligible"
             )
             await session.execute(
@@ -378,7 +438,7 @@ async def reveal_contact(
                     "actor": actor.name,
                     "reason": body.reason,
                     "allowed": allowed,
-                    "gate": json.dumps(gate),
+                    "gate": json.dumps({"gate": gate, "qualification": qualification}),
                 },
             )
             await append_ledger_entry(
@@ -392,15 +452,14 @@ async def reveal_contact(
                     "allowed": allowed,
                     "reason": body.reason,
                     "gateStatus": gate["contactEligibilityStatus"],
+                    "qualificationStage": qualification["stage"] if qualification else None,
                 },
                 produced_by=f"human:{actor.name}",
                 source_system="encrypted-contact-vault",
             )
 
-    # The transaction above is committed before denial is returned so the denied
-    # access attempt remains part of the immutable audit trail.
-    if not allowed or row is None or gate is None:
-        raise HTTPException(403, "Contact reveal blocked by verification/status/compliance gate")
+    if not allowed or row is None:
+        raise HTTPException(403, "Contact reveal blocked by qualification/verification/compliance gates")
 
     aad = f"gcci:{row['hypothesis_id']}:{row['prospect_id']}:{row['contact_type']}"
     try:
@@ -429,45 +488,60 @@ async def activate_for_outreach(
     async with SessionLocal() as session:
         async with session.begin():
             gate = await _gate(session, hypothesis_id)
+            qualification = await _latest_qualification(session, hypothesis_id)
             verified_prospect = (
                 await session.execute(
                     text(
                         """
-                        SELECT 1 FROM prospect_resolution_records
+                        SELECT id FROM prospect_resolution_records
                         WHERE hypothesis_id = :hypothesis_id
                           AND party_role = 'INJURED_PARTY'
                           AND stage = 'VERIFIED'
+                        ORDER BY updated_at DESC
                         LIMIT 1
                         """
                     ),
                     {"hypothesis_id": hypothesis_id},
                 )
-            ).first()
-            verified_contact = (
-                await session.execute(
-                    text(
-                        """
-                        SELECT 1 FROM contact_points
-                        WHERE hypothesis_id = :hypothesis_id
-                          AND verified = true AND status = 'ACTIVE'
-                        LIMIT 1
-                        """
-                    ),
-                    {"hypothesis_id": hypothesis_id},
-                )
-            ).first()
+            ).mappings().first()
+            verified_contact = None
+            if verified_prospect:
+                verified_contact = (
+                    await session.execute(
+                        text(
+                            """
+                            SELECT 1 FROM contact_points
+                            WHERE hypothesis_id = :hypothesis_id
+                              AND prospect_id = :prospect_id
+                              AND verified = true
+                              AND verification_confidence >= 0.90
+                              AND status = 'ACTIVE'
+                            LIMIT 1
+                            """
+                        ),
+                        {
+                            "hypothesis_id": hypothesis_id,
+                            "prospect_id": verified_prospect["id"],
+                        },
+                    )
+                ).first()
 
             allowed = bool(
-                gate["contactEligibilityStatus"] == "Eligible"
+                qualification
+                and qualification["caseQualified"]
+                and qualification["stage"] == "S3_RESOLVED_PROSPECT"
+                and gate["contactEligibilityStatus"] == "Eligible"
                 and verified_prospect
                 and verified_contact
             )
+            if not qualification or not qualification["caseQualified"] or qualification["stage"] != "S3_RESOLVED_PROSPECT":
+                reasons.append("lead is not a qualified S3 resolved prospect")
             if gate["contactEligibilityStatus"] != "Eligible":
                 reasons.append("compliance gate not eligible")
             if not verified_prospect:
                 reasons.append("no VERIFIED injured-party prospect")
             if not verified_contact:
-                reasons.append("no verified active contact point")
+                reasons.append("no >=90% verified active contact for the injured-party prospect")
 
             await session.execute(
                 text(
@@ -487,7 +561,7 @@ async def activate_for_outreach(
                     "requested_by": actor.name,
                     "allowed": allowed,
                     "reason": "; ".join(reasons) if reasons else "all gates passed",
-                    "gate": json.dumps(gate),
+                    "gate": json.dumps({"gate": gate, "qualification": qualification}),
                 },
             )
             await append_ledger_entry(
@@ -500,13 +574,12 @@ async def activate_for_outreach(
                     "requestedBy": actor.name,
                     "allowed": allowed,
                     "reasons": reasons,
+                    "qualification": qualification,
                 },
                 produced_by=f"human:{actor.name}",
                 source_system="PostgreSQL/PostGIS compliance gate",
             )
 
-    # Commit the activation attempt even when blocked; otherwise the most important
-    # negative compliance events disappear from the audit trail.
     if not allowed:
         raise HTTPException(403, {"status": "BLOCKED", "reasons": reasons, "attemptId": attempt_id})
     return {"status": "ACTIVATED_FOR_ATTORNEY_OUTREACH", "attemptId": attempt_id}
