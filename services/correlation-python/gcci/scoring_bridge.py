@@ -201,8 +201,6 @@ def derive_score_input(
     )
     other_contradictions = max(0, len(hypothesis.contradictions) - high_contradictions)
 
-    # Correlation service does not resolve people. These remain zero unless a future
-    # verified party-resolution adapter explicitly supplies them.
     num_parties = 0
     num_resolved_parties = 0
 
@@ -321,8 +319,15 @@ class CanonicalScorerClient:
 
     async def score(self, score_input: dict[str, Any]) -> CanonicalScoreResponse:
         timeout = httpx.Timeout(self.cfg.canonical_scorer_timeout_seconds)
+        headers = {}
+        if self.cfg.internal_service_token:
+            headers["Authorization"] = f"Bearer {self.cfg.internal_service_token}"
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(self.cfg.canonical_scorer_url, json=score_input)
+            response = await client.post(
+                self.cfg.canonical_scorer_url,
+                json=score_input,
+                headers=headers,
+            )
             response.raise_for_status()
             parsed = CanonicalScoreResponse.model_validate(response.json())
             if parsed.policy.get("contactEligibilityEvaluated") is not False:
