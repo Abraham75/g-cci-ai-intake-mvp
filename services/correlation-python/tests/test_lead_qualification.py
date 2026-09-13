@@ -72,6 +72,18 @@ def test_weak_injury_or_collectability_does_not_qualify_even_with_moderate_cos()
     assert decision["stage"] == "S1_OPPORTUNITY"
 
 
+def test_collectability_below_policy_threshold_cannot_qualify():
+    decision = _qualification_decision(
+        score=0.90,
+        tier="A",
+        canonical_input=canonical_input(collectability=0.50),
+        claimant_stage="VERIFIED",
+    )
+    assert decision["caseQualified"] is False
+    assert decision["stage"] == "S1_OPPORTUNITY"
+    assert any("collectability" in blocker.lower() for blocker in decision["blockers"])
+
+
 def test_official_crash_report_is_highest_priority_resolution_source():
     ranked = sorted(RESOLUTION_TASKS, key=_priority, reverse=True)
     assert ranked[0].source_type == "OFFICIAL_CRASH_REPORT"
