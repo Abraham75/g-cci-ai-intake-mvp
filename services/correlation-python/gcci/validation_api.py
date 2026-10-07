@@ -10,7 +10,12 @@ from sqlalchemy import text
 
 from .database import SessionLocal
 from .ledger import append_ledger_entry
-from .product_validation import RankedLabel, investigation_yield, precision_at_k, qualification_precision
+from .product_validation import (
+    RankedLabel,
+    investigation_yield,
+    precision_at_k,
+    qualification_precision,
+)
 
 
 router = APIRouter(tags=["product-validation"])
@@ -275,7 +280,11 @@ async def benchmark_cases() -> list[dict]:
         "id": row["id"], "externalReference": row["external_reference"],
         "source": row["source"], "occurredAt": row["occurred_at"].isoformat(),
         "roadway": row["roadway"], "knownValuable": row["known_valuable"],
-        "traditionalAwarenessAt": row["traditional_awareness_at"].isoformat() if row["traditional_awareness_at"] else None,
+        "traditionalAwarenessAt": (
+            row["traditional_awareness_at"].isoformat()
+            if row["traditional_awareness_at"]
+            else None
+        ),
         "matchedHypothesisId": row["matched_hypothesis_id"],
         "matchEvidence": row["match_evidence"], "note": row["note"],
         "createdBy": row["created_by"], "createdAt": row["created_at"].isoformat(),
@@ -345,7 +354,13 @@ async def validation_metrics(k: int = Query(default=10, ge=1, le=100)) -> dict:
             "matchedValuableBenchmarkCases": len(matched_valuable),
         },
         "interpretation": {
-            "timeAdvantage": "Negative hours means G-CCI detected the opportunity earlier than the traditional process.",
-            "recall": "Discovery recall is reported only when the external benchmark corpus contains known valuable cases.",
+            "timeAdvantage": (
+                "Negative hours means G-CCI detected the opportunity earlier "
+                "than the traditional process."
+            ),
+            "recall": (
+                "Discovery recall is reported only when the external benchmark "
+                "corpus contains known valuable cases."
+            ),
         },
     }
