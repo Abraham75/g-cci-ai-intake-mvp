@@ -108,7 +108,10 @@ export default function OpportunityRadar({ onOpenCase }) {
           <span className="text-[10px] uppercase text-slate-600 mr-1">Attorney disposition</span>
           <button onClick={() => review(item.hypothesisId, "GOOD_CASE", true)} className="flex items-center gap-1 px-2.5 py-1.5 rounded bg-emerald-950/50 text-emerald-300 text-xs hover:bg-emerald-900"><CheckCircle2 size={12}/>Worth investigating</button>
           <button onClick={() => review(item.hypothesisId, "NEEDS_MORE_INFORMATION", null)} className="flex items-center gap-1 px-2.5 py-1.5 rounded bg-slate-800 text-slate-300 text-xs hover:bg-slate-700"><Clock3 size={12}/>Need more info</button>
-          <button onClick={() => review(item.hypothesisId, "BAD_CASE", false)} className="flex items-center gap-1 px-2.5 py-1.5 rounded bg-rose-950/40 text-rose-300 text-xs hover:bg-rose-900"><XCircle size={12}/>Not worth pursuing</button>
+          <button onClick={() => review(item.hypothesisId, "NOT_A_TRUCK_CASE", false)} className="flex items-center gap-1 px-2.5 py-1.5 rounded bg-rose-950/40 text-rose-300 text-xs hover:bg-rose-900"><XCircle size={12}/>Not a truck case</button>
+          <button onClick={() => review(item.hypothesisId, "INSUFFICIENT_INJURY", false)} className="px-2.5 py-1.5 rounded bg-rose-950/40 text-rose-300 text-xs hover:bg-rose-900">Injury too weak</button>
+          <button onClick={() => review(item.hypothesisId, "LIABILITY_TOO_WEAK", false)} className="px-2.5 py-1.5 rounded bg-rose-950/40 text-rose-300 text-xs hover:bg-rose-900">Liability too weak</button>
+          <button onClick={() => review(item.hypothesisId, "NO_COLLECTIBLE_DEFENDANT", false)} className="px-2.5 py-1.5 rounded bg-rose-950/40 text-rose-300 text-xs hover:bg-rose-900">No collectible defendant</button>
           {item.attorneyReview && <span className="text-[10px] text-slate-500 ml-2">Latest: {item.attorneyReview.disposition.replaceAll("_", " ")}</span>}
         </div>
       </div>)}
