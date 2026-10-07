@@ -188,6 +188,83 @@ async def record_outcome(hypothesis_id: str, body: OutcomeInput) -> dict:
     return {"id": outcome_id, "ledgerEntryId": entry.id, "recorded": True}
 
 
+@router.post("/validation/benchmark-cases")
+async def add_benchmark_case(body: BenchmarkCaseInput) -> dict:
+    benchmark_id = str(uuid4())
+    async with SessionLocal() as session:
+        async with session.begin():
+            try:
+                await session.execute(text("""
+                    INSERT INTO validation_benchmark_cases
+                        (id,external_reference,source,occurred_at,roadway,known_valuable,
+                         traditional_awareness_at,note,created_by)
+                    VALUES
+                        (:id,:external_reference,:source,:occurred_at,:roadway,:known_valuable,
+                         :traditional_awareness_at,:note,:created_by)
+                """), {
+                    "id": benchmark_id, "external_reference": body.external_reference,
+                    "source": body.source, "occurred_at": body.occurred_at,
+                    "roadway": body.roadway, "known_valuable": body.known_valuable,
+                    "traditional_awareness_at": body.traditional_awareness_at,
+                    "note": body.note, "created_by": body.created_by,
+                })
+            except Exception as exc:
+                raise HTTPException(409, "Benchmark external reference already exists") from exc
+    return {"id": benchmark_id, "created": True}
+
+
+@router.post("/validation/benchmark-cases/{benchmark_id}/match")
+async def match_benchmark_case(benchmark_id: str, body: BenchmarkMatchInput) -> dict:
+    async with SessionLocal() as session:
+        async with session.begin():
+            hypothesis = (await session.execute(text(
+                "SELECT 1 FROM incident_hypotheses WHERE id=:id"
+            ), {"id": body.hypothesis_id})).first()
+            if not hypothesis:
+                raise HTTPException(404, "Unknown hypothesis")
+            result = await session.execute(text("""
+                UPDATE validation_benchmark_cases
+                SET matched_hypothesis_id=:hypothesis_id,
+                    match_evidence=:match_evidence, matched_at=now()
+                WHERE id=:id
+                RETURNING external_reference
+            """), {"id": benchmark_id, "hypothesis_id": body.hypothesis_id,
+                    "match_evidence": body.match_evidence})
+            row = result.mappings().first()
+            if row is None:
+                raise HTTPException(404, "Unknown benchmark case")
+            entry = await append_ledger_entry(
+                session, entry_type="ValidationBenchmarkMatch",
+                subject_id=body.hypothesis_id,
+                payload={"benchmarkId": benchmark_id,
+                         "externalReference": row["external_reference"],
+                         "matchEvidence": body.match_evidence},
+                produced_by=body.matched_by, source_system="GCCI:ValidationCorpus",
+            )
+    return {"matched": True, "ledgerEntryId": entry.id}
+
+
+@router.get("/validation/benchmark-cases")
+async def benchmark_cases() -> list[dict]:
+    async with SessionLocal() as session:
+        rows = (await session.execute(text("""
+            SELECT id, external_reference, source, occurred_at, roadway, known_valuable,
+                   traditional_awareness_at, matched_hypothesis_id, match_evidence,
+                   note, created_by, created_at, matched_at
+            FROM validation_benchmark_cases ORDER BY occurred_at DESC
+        """))).mappings().all()
+    return [{
+        "id": row["id"], "externalReference": row["external_reference"],
+        "source": row["source"], "occurredAt": row["occurred_at"].isoformat(),
+        "roadway": row["roadway"], "knownValuable": row["known_valuable"],
+        "traditionalAwarenessAt": row["traditional_awareness_at"].isoformat() if row["traditional_awareness_at"] else None,
+        "matchedHypothesisId": row["matched_hypothesis_id"],
+        "matchEvidence": row["match_evidence"], "note": row["note"],
+        "createdBy": row["created_by"], "createdAt": row["created_at"].isoformat(),
+        "matchedAt": row["matched_at"].isoformat() if row["matched_at"] else None,
+    } for row in rows]
+
+
 @router.get("/validation/metrics")
 async def validation_metrics(k: int = Query(default=10, ge=1, le=100)) -> dict:
     async with SessionLocal() as session:
@@ -207,6 +284,12 @@ async def validation_metrics(k: int = Query(default=10, ge=1, le=100)) -> dict:
             SELECT DISTINCT ON (hypothesis_id) hypothesis_id, stage
             FROM case_outcomes ORDER BY hypothesis_id, created_at DESC
         """))).mappings().all()
+        benchmark = (await session.execute(text("""
+            SELECT b.known_valuable, b.matched_hypothesis_id,
+                   b.traditional_awareness_at, h.created_at AS gcci_detected_at
+            FROM validation_benchmark_cases b
+            LEFT JOIN incident_hypotheses h ON h.id=b.matched_hypothesis_id
+        """))).mappings().all()
         timing = (await session.execute(text("""
             SELECT DISTINCT ON (o.hypothesis_id)
                    o.hypothesis_id, h.created_at AS gcci_detected_at,
@@ -225,6 +308,7 @@ async def validation_metrics(k: int = Query(default=10, ge=1, le=100)) -> dict:
     ]
     reviewed_count = sum(1 for row in ranked if row.attorney_worthy is not None)
     return {
+        "discoveryRecall": discovery_recall,
         "precisionAtK": precision_at_k(ranked, k),
         "k": k,
         "qualificationPrecision": qualification_precision(ranked),
@@ -237,9 +321,12 @@ async def validation_metrics(k: int = Query(default=10, ge=1, le=100)) -> dict:
             "reviewed": reviewed_count,
             "outcomes": len(stages),
             "timedComparisons": len(time_advantages),
+            "benchmarkCases": len(benchmark),
+            "knownValuableBenchmarkCases": len(valuable_benchmarks),
+            "matchedValuableBenchmarkCases": len(matched_valuable),
         },
         "interpretation": {
             "timeAdvantage": "Negative hours means G-CCI detected the opportunity earlier than the traditional process.",
-            "notYetMeasured": "Discovery recall requires a defined external ground-truth corpus of known valuable cases.",
+            "recall": "Discovery recall is reported only when the external benchmark corpus contains known valuable cases.",
         },
     }
