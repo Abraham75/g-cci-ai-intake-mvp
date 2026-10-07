@@ -67,13 +67,13 @@ export default function OpportunityRadar({ onOpenCase }) {
 
     <div className="bg-[#0f1f38] border border-slate-800 rounded-xl p-4">
       <div className="flex items-center gap-2 text-sm font-semibold"><Target size={15} className="text-amber-400"/>Validation — not vanity metrics</div>
-      <div className="grid md:grid-cols-4 gap-4 mt-3 text-sm">
-        <Metric label="Precision@10" value={pct(metrics?.precisionAtK)} />
+      <div className="grid md:grid-cols-5 gap-4 mt-3 text-sm">
+        <Metric label="Discovery recall" value={pct(metrics?.discoveryRecall)} />\n        <Metric label="Precision@10" value={pct(metrics?.precisionAtK)} />
         <Metric label="Qualification precision" value={pct(metrics?.qualificationPrecision)} />
         <Metric label="Investigation yield" value={pct(metrics?.investigationYield)} />
         <Metric label="Reviewed ground truth" value={metrics?.counts?.reviewed ?? "—"} />
       </div>
-      <div className="text-[10px] text-slate-600 mt-3">Discovery recall remains intentionally unreported until an external ground-truth corpus of known valuable cases exists.</div>
+      <div className="text-[10px] text-slate-600 mt-3">Discovery recall appears only after known valuable cases are loaded into the external benchmark corpus and matched with evidence.</div>
     </div>
 
     {error && <div className="border border-rose-800 bg-rose-950/30 text-rose-300 rounded-xl p-4 text-sm">{error}</div>}
