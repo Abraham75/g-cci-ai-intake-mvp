@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from statistics import median
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query
@@ -332,7 +333,7 @@ async def validation_metrics(k: int = Query(default=10, ge=1, le=100)) -> dict:
         "qualificationPrecision": qualification_precision(ranked),
         "investigationYield": investigation_yield([row["stage"] for row in stages]),
         "medianTimeAdvantageHours": (
-            sorted(time_advantages)[len(time_advantages)//2] if time_advantages else None
+            median(time_advantages) if time_advantages else None
         ),
         "counts": {
             "scored": len(ranked),
