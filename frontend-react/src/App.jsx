@@ -1,24 +1,23 @@
 import React, { useEffect, useState } from "react";
-import { BarChart3, BriefcaseBusiness, LogIn, LogOut, Radio, Server, Scale, ShieldCheck } from "lucide-react";
+import { BriefcaseBusiness, LogIn, LogOut, Server, Scale, ShieldCheck, Target } from "lucide-react";
 import CaseIntelligenceDetail from "./CaseIntelligenceDetail.jsx";
 import LeadQualificationWorkspace from "./LeadQualificationWorkspace.jsx";
 import ContactComplianceVault from "./ContactComplianceVault.jsx";
 import DecisionEconomicsDashboard from "./DecisionEconomicsDashboard.jsx";
 import PlatformStatus from "./PlatformStatus.jsx";
-import LiveSignals from "./LiveSignals.jsx";
+import OpportunityRadar from "./OpportunityRadar.jsx";
 import { initializeAuth, oidcConfigured, signIn, signOut, subscribeAuth } from "./auth.js";
 
 const DEFAULT_HYPOTHESIS_ID = import.meta.env.VITE_GCCI_DEMO_HYPOTHESIS_ID || "";
 
 const NAV = [
-  { id: "signals", label: "Live Opportunity Signals", icon: Radio },
-  { id: "case", label: "Case Intelligence Detail", icon: BriefcaseBusiness },
-  { id: "economics", label: "Decision Economics", icon: BarChart3 },
+  { id: "radar", label: "Opportunity Radar", icon: Target },
+  { id: "case", label: "Case Intelligence", icon: BriefcaseBusiness },
   { id: "status", label: "Platform Status", icon: Server },
 ];
 
 export default function App() {
-  const [view, setView] = useState("signals");
+  const [view, setView] = useState("radar");
   const [selectedHypothesisId, setSelectedHypothesisId] = useState(DEFAULT_HYPOTHESIS_ID);
   const [auth, setAuth] = useState({ loading: oidcConfigured, user: null, error: "" });
 
@@ -95,7 +94,7 @@ export default function App() {
         <header className="h-14 bg-[#0a1628]/70 border-b border-slate-800 flex items-center justify-between px-6 sticky top-0 z-20 backdrop-blur">
           <div className="text-sm font-semibold text-slate-300">{NAV.find((item) => item.id === view)?.label}</div>
           <div className="flex items-center gap-4">
-            <div className="text-[11px] text-slate-500">TypeScript canonical scorer · PostgreSQL/PostGIS intelligence · React attorney console</div>
+            <div className="text-[11px] text-slate-500">Rank opportunities · investigate uncertainty · capture attorney ground truth</div>
             {oidcConfigured && (
               <button onClick={() => signOut()} className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-200" title={displayName}>
                 <LogOut size={13} /> Sign out
@@ -104,10 +103,10 @@ export default function App() {
           </div>
         </header>
         <main className="p-6 max-w-[1600px] mx-auto">
-          {view === "signals" && <LiveSignals onOpenCase={openCase} />}
+          {view === "radar" && <OpportunityRadar onOpenCase={openCase} />}
           {view === "case" && (
             <>
-              <CaseIntelligenceDetail hypothesisId={selectedHypothesisId} onBack={() => setView("signals")} />
+              <CaseIntelligenceDetail hypothesisId={selectedHypothesisId} onBack={() => setView("radar")} />
               {selectedHypothesisId && <LeadQualificationWorkspace hypothesisId={selectedHypothesisId} />}
               {selectedHypothesisId && <ContactComplianceVault hypothesisId={selectedHypothesisId} />}
             </>
