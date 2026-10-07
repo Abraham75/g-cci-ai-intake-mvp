@@ -31,6 +31,25 @@ export const gcciApi = {
   ledgerIntegrity: () => request(CORRELATION_API_BASE, "/ledger/integrity"),
   persistentLedgerIntegrity: () => request(CORRELATION_API_BASE, "/ledger/integrity"),
 
+  opportunities: (limit = 25) =>
+    request(CORRELATION_API_BASE, `/opportunities?limit=${limit}`),
+  validationMetrics: (k = 10) =>
+    request(CORRELATION_API_BASE, `/validation/metrics?k=${k}`),
+  recordAttorneyReview: (hypothesisId, review) =>
+    request(
+      CORRELATION_API_BASE,
+      `/hypotheses/${encodeURIComponent(hypothesisId)}/attorney-review`,
+      { method: "POST", body: JSON.stringify(review) },
+    ),
+  attorneyReviews: (hypothesisId) =>
+    request(CORRELATION_API_BASE, `/hypotheses/${encodeURIComponent(hypothesisId)}/attorney-reviews`),
+  recordOutcome: (hypothesisId, outcome) =>
+    request(
+      CORRELATION_API_BASE,
+      `/hypotheses/${encodeURIComponent(hypothesisId)}/outcomes`,
+      { method: "POST", body: JSON.stringify(outcome) },
+    ),
+
   hypothesis: (hypothesisId) =>
     request(CORRELATION_API_BASE, `/hypotheses/${encodeURIComponent(hypothesisId)}`),
   hypothesisRevisions: (hypothesisId) =>
