@@ -308,8 +308,13 @@ async def validation_metrics(k: int = Query(default=10, ge=1, le=100)) -> dict:
             FROM latest_score s LEFT JOIN latest_review r USING (hypothesis_id)
         """))).mappings().all()
         stages = (await session.execute(text("""
-            SELECT DISTINCT ON (hypothesis_id) hypothesis_id, stage
-            FROM case_outcomes ORDER BY hypothesis_id, created_at DESC
+            SELECT hypothesis_id,
+                   bool_or(stage IN ('INVESTIGATED','ADVANCED','SIGNED','REFERRED','SETTLED'))
+                       AS investigated,
+                   bool_or(stage IN ('ADVANCED','SIGNED','REFERRED','SETTLED'))
+                       AS advanced
+            FROM case_outcomes
+            GROUP BY hypothesis_id
         """))).mappings().all()
         benchmark = (await session.execute(text("""
             SELECT b.known_valuable, b.matched_hypothesis_id,
@@ -340,7 +345,10 @@ async def validation_metrics(k: int = Query(default=10, ge=1, le=100)) -> dict:
         "precisionAtK": precision_at_k(ranked, k),
         "k": k,
         "qualificationPrecision": qualification_precision(ranked),
-        "investigationYield": investigation_yield([row["stage"] for row in stages]),
+        "investigationYield": investigation_yield([
+            "ADVANCED" if row["advanced"] else "INVESTIGATED"
+            for row in stages if row["investigated"]
+        ]),
         "medianTimeAdvantageHours": (
             median(time_advantages) if time_advantages else None
         ),
