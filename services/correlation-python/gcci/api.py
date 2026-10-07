@@ -21,7 +21,7 @@ from .service import CrossSourceCorrelationService
 
 app = FastAPI(
     title="G-CCI Cross-Source Event Correlation Service",
-    version="1.5.0",
+    version="1.6.0",
     docs_url=None if settings.environment.lower() == "production" else "/docs",
     redoc_url=None if settings.environment.lower() == "production" else "/redoc",
     openapi_url=None if settings.environment.lower() == "production" else "/openapi.json",
@@ -31,7 +31,7 @@ app = FastAPI(
         "queues material hypothesis revisions for canonical G-CCI scoring, persists "
         "camera inventory and revision-specific camera candidates, ranks evidence-development "
         "work by expected information gain, qualifies truck-case opportunities, and ranks "
-        "lawful evidence sources for claimant resolution. Durable compliance state and an "
+        "lawful evidence sources for claimant resolution, and captures attorney dispositions/outcomes for product calibration. Durable compliance state and an "
         "encrypted contact vault remain independent of case scoring and prevent analytics "
         "from becoming outreach authorization."
     ),
@@ -105,7 +105,7 @@ def _task_json(row) -> dict:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "gcci-cross-source-correlation", "version": "1.5.0"}
+    return {"status": "ok", "service": "gcci-cross-source-correlation", "version": "1.6.0"}
 
 
 @app.post("/correlate", response_model=CorrelateResponse)
