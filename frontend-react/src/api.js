@@ -50,6 +50,16 @@ export const gcciApi = {
       { method: "POST", body: JSON.stringify(outcome) },
     ),
 
+  benchmarkCases: () => request(CORRELATION_API_BASE, "/validation/benchmark-cases"),
+  addBenchmarkCase: (benchmark) =>
+    request(CORRELATION_API_BASE, "/validation/benchmark-cases", {
+      method: "POST", body: JSON.stringify(benchmark),
+    }),
+  matchBenchmarkCase: (benchmarkId, match) =>
+    request(CORRELATION_API_BASE, `/validation/benchmark-cases/${encodeURIComponent(benchmarkId)}/match`, {
+      method: "POST", body: JSON.stringify(match),
+    }),
+
   hypothesis: (hypothesisId) =>
     request(CORRELATION_API_BASE, `/hypotheses/${encodeURIComponent(hypothesisId)}`),
   hypothesisRevisions: (hypothesisId) =>
