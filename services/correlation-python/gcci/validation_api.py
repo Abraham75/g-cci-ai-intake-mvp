@@ -245,6 +245,16 @@ async def match_benchmark_case(benchmark_id: str, body: BenchmarkMatchInput) -> 
             ), {"id": body.hypothesis_id})).first()
             if not hypothesis:
                 raise HTTPException(404, "Unknown hypothesis")
+            match_id = str(uuid4())
+            await session.execute(text("""
+                INSERT INTO validation_benchmark_matches
+                    (id,benchmark_id,hypothesis_id,match_evidence,matched_by)
+                VALUES (:id,:benchmark_id,:hypothesis_id,:match_evidence,:matched_by)
+            """), {
+                "id": match_id, "benchmark_id": benchmark_id,
+                "hypothesis_id": body.hypothesis_id,
+                "match_evidence": body.match_evidence, "matched_by": body.matched_by,
+            })
             result = await session.execute(text("""
                 UPDATE validation_benchmark_cases
                 SET matched_hypothesis_id=:hypothesis_id,
@@ -259,7 +269,7 @@ async def match_benchmark_case(benchmark_id: str, body: BenchmarkMatchInput) -> 
             entry = await append_ledger_entry(
                 session, entry_type="ValidationBenchmarkMatch",
                 subject_id=body.hypothesis_id,
-                payload={"benchmarkId": benchmark_id,
+                payload={"benchmarkId": benchmark_id, "matchId": match_id,
                          "externalReference": row["external_reference"],
                          "matchEvidence": body.match_evidence},
                 produced_by=body.matched_by, source_system="GCCI:ValidationCorpus",
