@@ -30,6 +30,23 @@ class AttorneyReviewInput(BaseModel):
     reviewed_by: str = Field(min_length=1, max_length=255)
 
 
+class BenchmarkCaseInput(BaseModel):
+    external_reference: str = Field(min_length=1, max_length=255)
+    source: str = Field(min_length=1, max_length=255)
+    occurred_at: datetime
+    roadway: str | None = Field(default=None, max_length=255)
+    known_valuable: bool
+    traditional_awareness_at: datetime | None = None
+    note: str | None = Field(default=None, max_length=4000)
+    created_by: str = Field(min_length=1, max_length=255)
+
+
+class BenchmarkMatchInput(BaseModel):
+    hypothesis_id: str = Field(min_length=1, max_length=64)
+    match_evidence: str = Field(min_length=1, max_length=4000)
+    matched_by: str = Field(min_length=1, max_length=255)
+
+
 class OutcomeInput(BaseModel):
     stage: str
     traditional_awareness_at: datetime | None = None
@@ -290,21 +307,22 @@ async def validation_metrics(k: int = Query(default=10, ge=1, le=100)) -> dict:
             FROM validation_benchmark_cases b
             LEFT JOIN incident_hypotheses h ON h.id=b.matched_hypothesis_id
         """))).mappings().all()
-        timing = (await session.execute(text("""
-            SELECT DISTINCT ON (o.hypothesis_id)
-                   o.hypothesis_id, h.created_at AS gcci_detected_at,
-                   o.traditional_awareness_at
-            FROM case_outcomes o
-            JOIN incident_hypotheses h ON h.id=o.hypothesis_id
-            WHERE o.traditional_awareness_at IS NOT NULL
-            ORDER BY o.hypothesis_id, o.created_at DESC
-        """))).mappings().all()
 
     ranked = [RankedLabel(row["hypothesis_id"], float(row["score"]), row["attorney_worthy"])
               for row in labels]
+    valuable_benchmarks = [row for row in benchmark if row["known_valuable"]]
+    matched_valuable = [row for row in valuable_benchmarks if row["matched_hypothesis_id"]]
+    discovery_recall = (
+        len(matched_valuable) / len(valuable_benchmarks)
+        if valuable_benchmarks else None
+    )
+    benchmark_timing = [
+        row for row in matched_valuable
+        if row["traditional_awareness_at"] and row["gcci_detected_at"]
+    ]
     time_advantages = [
         (row["gcci_detected_at"] - row["traditional_awareness_at"]).total_seconds() / 3600
-        for row in timing
+        for row in benchmark_timing
     ]
     reviewed_count = sum(1 for row in ranked if row.attorney_worthy is not None)
     return {
