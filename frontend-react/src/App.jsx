@@ -3,7 +3,6 @@ import { BriefcaseBusiness, LogIn, LogOut, Server, Scale, ShieldCheck, Target } 
 import CaseIntelligenceDetail from "./CaseIntelligenceDetail.jsx";
 import LeadQualificationWorkspace from "./LeadQualificationWorkspace.jsx";
 import ContactComplianceVault from "./ContactComplianceVault.jsx";
-import DecisionEconomicsDashboard from "./DecisionEconomicsDashboard.jsx";
 import PlatformStatus from "./PlatformStatus.jsx";
 import OpportunityRadar from "./OpportunityRadar.jsx";
 import { initializeAuth, oidcConfigured, signIn, signOut, subscribeAuth } from "./auth.js";
