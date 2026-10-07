@@ -1,6 +1,11 @@
 import pytest
 
-from gcci.product_validation import RankedLabel, investigation_yield, precision_at_k, qualification_precision
+from gcci.product_validation import (
+    RankedLabel,
+    investigation_yield,
+    precision_at_k,
+    qualification_precision,
+)
 
 
 def test_precision_at_k_uses_rank_order_and_reviewed_labels():
@@ -25,7 +30,8 @@ def test_precision_returns_none_without_ground_truth():
 
 
 def test_investigation_yield_counts_advanced_outcomes():
-    assert investigation_yield(["INVESTIGATED", "ADVANCED", "SIGNED", "DECLINED"]) == pytest.approx(2 / 3)
+    stages = ["INVESTIGATED", "ADVANCED", "SIGNED", "DECLINED"]
+    assert investigation_yield(stages) == pytest.approx(2 / 3)
 
 
 def test_invalid_k_rejected():
