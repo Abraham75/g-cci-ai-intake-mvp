@@ -68,7 +68,8 @@ export default function OpportunityRadar({ onOpenCase }) {
     <div className="bg-[#0f1f38] border border-slate-800 rounded-xl p-4">
       <div className="flex items-center gap-2 text-sm font-semibold"><Target size={15} className="text-amber-400"/>Validation — not vanity metrics</div>
       <div className="grid md:grid-cols-5 gap-4 mt-3 text-sm">
-        <Metric label="Discovery recall" value={pct(metrics?.discoveryRecall)} />\n        <Metric label="Precision@10" value={pct(metrics?.precisionAtK)} />
+        <Metric label="Discovery recall" value={pct(metrics?.discoveryRecall)} />
+        <Metric label="Precision@10" value={pct(metrics?.precisionAtK)} />
         <Metric label="Qualification precision" value={pct(metrics?.qualificationPrecision)} />
         <Metric label="Investigation yield" value={pct(metrics?.investigationYield)} />
         <Metric label="Reviewed ground truth" value={metrics?.counts?.reviewed ?? "—"} />
