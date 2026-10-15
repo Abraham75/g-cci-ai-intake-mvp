@@ -4,7 +4,7 @@ from datetime import datetime
 from statistics import median
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -125,7 +125,7 @@ async def opportunities(limit: int = Query(default=25, ge=1, le=200)) -> list[di
 
 
 @router.post("/hypotheses/{hypothesis_id}/attorney-review")
-async def record_attorney_review(hypothesis_id: str, body: AttorneyReviewInput) -> dict:
+async def record_attorney_review(hypothesis_id: str, body: AttorneyReviewInput, request: Request) -> dict:
     if body.disposition not in DISPOSITIONS:
         raise HTTPException(422, "Unsupported attorney disposition")
     async with SessionLocal() as session:
@@ -152,7 +152,7 @@ async def record_attorney_review(hypothesis_id: str, body: AttorneyReviewInput) 
                 "score_revision": score["revision"] if score else None,
                 "disposition": body.disposition, "attorney_worthy": body.attorney_worthy,
                 "reason_code": body.reason_code, "note": body.note,
-                "reviewed_by": body.reviewed_by,
+                "reviewed_by": request.state.actor.name,
             })
             entry = await append_ledger_entry(
                 session, entry_type="AttorneyCaseReview", subject_id=hypothesis_id,
@@ -179,7 +179,7 @@ async def attorney_reviews(hypothesis_id: str) -> list[dict]:
 
 
 @router.post("/hypotheses/{hypothesis_id}/outcomes")
-async def record_outcome(hypothesis_id: str, body: OutcomeInput) -> dict:
+async def record_outcome(hypothesis_id: str, body: OutcomeInput, request: Request) -> dict:
     if body.stage not in OUTCOME_STAGES:
         raise HTTPException(422, "Unsupported outcome stage")
     async with SessionLocal() as session:
@@ -197,7 +197,7 @@ async def record_outcome(hypothesis_id: str, body: OutcomeInput) -> dict:
             """), {
                 "id": outcome_id, "hypothesis_id": hypothesis_id, "stage": body.stage,
                 "traditional_awareness_at": body.traditional_awareness_at,
-                "note": body.note, "recorded_by": body.recorded_by,
+                "note": body.note, "recorded_by": request.state.actor.name,
             })
             entry = await append_ledger_entry(
                 session, entry_type="CaseOutcome", subject_id=hypothesis_id,
@@ -212,7 +212,7 @@ async def record_outcome(hypothesis_id: str, body: OutcomeInput) -> dict:
 
 
 @router.post("/validation/benchmark-cases")
-async def add_benchmark_case(body: BenchmarkCaseInput) -> dict:
+async def add_benchmark_case(body: BenchmarkCaseInput, request: Request) -> dict:
     benchmark_id = str(uuid4())
     async with SessionLocal() as session:
         async with session.begin():
@@ -229,7 +229,7 @@ async def add_benchmark_case(body: BenchmarkCaseInput) -> dict:
                     "source": body.source, "occurred_at": body.occurred_at,
                     "roadway": body.roadway, "known_valuable": body.known_valuable,
                     "traditional_awareness_at": body.traditional_awareness_at,
-                    "note": body.note, "created_by": body.created_by,
+                    "note": body.note, "created_by": request.state.actor.name,
                 })
             except Exception as exc:
                 raise HTTPException(409, "Benchmark external reference already exists") from exc
@@ -237,7 +237,7 @@ async def add_benchmark_case(body: BenchmarkCaseInput) -> dict:
 
 
 @router.post("/validation/benchmark-cases/{benchmark_id}/match")
-async def match_benchmark_case(benchmark_id: str, body: BenchmarkMatchInput) -> dict:
+async def match_benchmark_case(benchmark_id: str, body: BenchmarkMatchInput, request: Request) -> dict:
     async with SessionLocal() as session:
         async with session.begin():
             hypothesis = (await session.execute(text(
@@ -253,7 +253,7 @@ async def match_benchmark_case(benchmark_id: str, body: BenchmarkMatchInput) -> 
             """), {
                 "id": match_id, "benchmark_id": benchmark_id,
                 "hypothesis_id": body.hypothesis_id,
-                "match_evidence": body.match_evidence, "matched_by": body.matched_by,
+                "match_evidence": body.match_evidence, "matched_by": request.state.actor.name,
             })
             result = await session.execute(text("""
                 UPDATE validation_benchmark_cases
