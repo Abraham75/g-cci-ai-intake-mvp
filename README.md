@@ -1,131 +1,147 @@
-G-CCI AI Intake MVP
+# G-CCI — Graham Case Correlation Intelligence
 
-Global Case Confidence & Intelligence Platform
+G-CCI is an attorney-facing commercial-trucking case-discovery and investigation platform. Its product objective is narrow: **identify valuable trucking-injury opportunities earlier, rank them for attorney attention, recommend the highest-value next investigative action, and learn from attorney decisions and case outcomes.**
 
-A lawyer-centric AI decision system for catastrophic Personal Injury and Trucking litigation.
+## Critical product loop
 
-Overview
+```text
+Public incident signals
+  -> normalization
+  -> cross-source incident correlation
+  -> durable IncidentHypothesis
+  -> canonical Case Opportunity scoring
+  -> attorney Opportunity Radar
+  -> evidence acquisition / uncertainty reduction
+  -> attorney disposition
+  -> case outcome
+  -> validation and calibration
+```
 
-The G-CCI Platform (Global Case Confidence & Intelligence) is an AI-powered decision-support system designed to eliminate lead noise and surface high-value litigation opportunities before a human lawyer ever engages.
+The project is under a broad feature freeze while this loop is validated. See `PRODUCT_SUCCESS_PLAN.md`.
 
-This MVP demonstrates how real-time data, explainable AI, and litigation-aware scoring can:
+## Runtime architecture
 
-Prioritize catastrophic truck and severe PI claims
+- **React attorney console** — Opportunity Radar, Case Intelligence, Platform Status.
+- **Python/FastAPI external API** — durable correlation, PostGIS persistence, camera/evidence intelligence, lead qualification, product validation, compliance and protected-contact workflows.
+- **TypeScript/Express internal runtime** — canonical deterministic Case Opportunity scorer and source/runtime integrations.
+- **PostgreSQL/PostGIS** — authoritative event, hypothesis, score, evidence, camera, prospect, compliance, contact, feedback, benchmark and decision-ledger state.
+- **Decision ledger** — durable provenance for material analytical and human decisions.
+- **RDF/OWL + SHACL** — semantic contract and validation assets, not the primary user experience.
 
-Forecast case value and confidence
+## Product validation
 
-Explain why a case is elite (SHAP-style attribution)
+The repository now captures two independent forms of ground truth.
 
-Enforce compliance and advertising rules
+### Attorney feedback
+Migration `009_attorney_feedback_validation.sql` adds immutable attorney case reviews and case outcomes. Reviews are tied to the score revision seen by the reviewer and material reviews/outcomes are ledgered.
 
-Provide live triage, alerts, and auditability
+### External benchmark corpus
+Migration `010_validation_benchmark_corpus.sql` stores historical known cases independently of G-CCI discovery. A benchmark case can be matched to a hypothesis only through an explicit reviewed match, allowing discovery recall and time advantage to be measured without using the system's own discoveries as ground truth.
 
-This system is calibrated for high-stakes, truck-dominant PI firms such as The Graham Firm (“Big Truck Lawyers”).
+Primary KPIs:
+- discovery recall;
+- Precision@K;
+- qualification precision;
+- investigation yield;
+- time-to-discovery advantage.
 
-Core Capabilities
-1. Predictive Acquisition (“Radar”)
+No KPI is fabricated when ground truth is absent; the API returns `null` until the required labels exist.
 
-Scans public data (police blotters, forums, geo-signals)
+## Attorney workflow
 
-Identifies high-risk crash zones
+The default UI is **Opportunity Radar**. It ranks scored hypotheses, shows the next best evidence action, and captures attorney dispositions directly in the workflow. The primary navigation is intentionally limited to:
 
-Captures structured intake via AI voice agents
+1. Opportunity Radar
+2. Case Intelligence
+3. Platform Status
 
-2. Case Valuation & Triage (“The Brain”)
+Advanced model, ontology, orchestration and infrastructure details remain secondary/audit concerns.
 
-Lead Confidence Score (0–100)
+## Semantic invariants
 
-Expected Case Value ($50K – $5M+)
+```text
+Event Correlation Confidence
+!= Causal Relationship Confidence
+!= Party Attribution Confidence
+!= Case Opportunity Score
+!= Lead Qualification
+!= Claimant Resolution
+!= Contact Eligibility
+!= Outreach Authorization
+```
 
-Truck vs Non-Truck submodel routing
+High case value never authorizes outreach. Camera relevance never establishes causation or party identity. Identity resolution must be evidence-backed. Compliance remains an independent durable gate.
 
-SHAP-style liability and damage attribution
+## Canonical Case Opportunity Score
 
-3. Explainability & Trust
+The TypeScript runtime remains the single owner of the canonical heuristic score:
 
-Feature contribution bars
+```text
+COS =
+0.25 * Liability
++ 0.20 * Injury
++ 0.20 * Collectability
++ 0.15 * Evidence
++ 0.10 * Mechanism Severity
++ 0.10 * Defendant Resolution
+- 0.20 * Uncertainty Penalty
+```
 
-Plain-English legal reasoning
+Tier A >= 0.80, B >= 0.65, C >= 0.45, D otherwise. An unresolved high-severity contradiction forces Tier C.
 
-Model path disclosure
+These weights are **not treated as empirically calibrated truth**. Attorney labels and the external benchmark corpus exist specifically to test and later calibrate ranking quality.
 
-Compliance trace (RAG + filters)
+## Production release gate
 
-4. Predictive Ops Center
+A commit is not a release. Production candidacy requires:
+- GitHub CI actually executes and passes;
+- TypeScript build passes;
+- React production build passes;
+- Python lint/tests pass, including PostGIS and canonical-scorer integration;
+- migrations apply idempotently;
+- ontology/SHACL validation passes;
+- no unresolved Critical red-team findings;
+- staging readiness/dependency checks pass;
+- durable ledger integrity passes;
+- production identity, secrets, encryption, monitoring and backup configuration are verified.
 
-Attorney matching by venue and case class
+## Development
 
-Telematics / EDR enrichment
+TypeScript:
 
-Live alert stream (CRITICAL / WARN / INFO)
+```bash
+npm install
+npm run build
+npm run build:server
+```
 
-Frontend (HTML / JS Dashboard)
-        |
-        v
-FastAPI Backend
-  ├── /intake
-  ├── /score
-  ├── /explain
-  └── /compliance-trace
-        |
-        v
-AI Decision Orchestrator
-  ├── Truck Submodel
-  ├── Non-Truck PI Submodel
-  ├── Case Value Engine
-  └── SHAP Explainability
-        |
-        v
-RAG + Compliance Layer
-  ├── GA Tort Law
-  ├── FMCSA Regulations
-  ├── GA Trucking Case Law
-  └── Advertising & Ethics Filters
-| Endpoint                 | Description                            |
-| ------------------------ | -------------------------------------- |
-| `POST /intake`           | Accepts and stores raw lead data       |
-| `POST /score`            | Returns LeadScore + Value Estimate     |
-| `POST /explain`          | Returns SHAP + Plain-English reasoning |
-| `POST /compliance-trace` | Returns sources + filters applied      |
-app/
- ├── app.py           # FastAPI entrypoint
- ├── engine.py       # Scoring + routing logic
- ├── schemas.py      # Pydantic models
- ├── explain.py      # SHAP-style reasoning
- ├── compliance.py   # RAG + rules filters
- └── store.py        # Intake persistence
+Python/PostGIS stack:
 
-frontend/            # HTML UI
-docs/                # Research + legal corpus
-assets/              # UI images and logos
-Strategic Vision
+```bash
+cd services/correlation-python
+docker compose up --build
+```
 
-G-CCI is not a dashboard.
-It is a revenue intelligence engine for catastrophic litigation.
+Python tests:
 
-It proves:
+```bash
+cd services/correlation-python
+python -m pip install -e ".[dev]"
+pytest -q
+```
 
-AI prioritization
+Ontology validation:
 
-Revenue-weighted decisioning
+```bash
+python -m pip install rdflib pyshacl
+python scripts/validate_ontology.py
+```
 
-Litigation-aware explainability
+## Current status
 
-Compliance-first automation
+This branch is a production-hardening and validation candidate, not a production declaration. Live pilot performance, benchmark recall, ranking precision and investigation yield must be established with real reviewed data before the product's analytical effectiveness can be claimed.
 
-To stakeholders, this system behaves like a live production platform, not a mockup.
+For the authoritative product priorities and 90-day validation plan, see `PRODUCT_SUCCESS_PLAN.md`. For multi-agent engineering governance, see `MULTI_AGENT_ORCHESTRATION.md`.
 
-Roadmap
-
-Live public data ingestion (GDOT, NHTSA, police)
-
-Real SHAP from trained XGBoost model
-
-Mapbox crash heatmaps
-
-FMCSA violation overlays
-
-CRM + call routing automation
-
-Author: Abraham Gilbert
-License: Proprietary MVP Prototype
+**Author:** Abraham Gilbert  
+**License:** Proprietary

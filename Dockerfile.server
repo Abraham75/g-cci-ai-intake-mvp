@@ -1,0 +1,21 @@
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+COPY package.json package-lock.json* tsconfig.json tsconfig.server.json ./
+RUN npm install
+COPY server ./server
+RUN npm run build:server
+
+FROM node:20-alpine AS runtime
+
+ENV NODE_ENV=production \
+    PORT=3001
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm install --omit=dev && npm cache clean --force
+COPY --from=builder /app/dist ./dist
+
+USER node
+EXPOSE 3001
+CMD ["npm", "run", "start:server"]
