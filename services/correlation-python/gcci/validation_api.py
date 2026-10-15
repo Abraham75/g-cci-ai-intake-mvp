@@ -33,7 +33,7 @@ class AttorneyReviewInput(BaseModel):
     attorney_worthy: bool | None = None
     reason_code: str | None = Field(default=None, max_length=80)
     note: str | None = Field(default=None, max_length=4000)
-    reviewed_by: str = Field(min_length=1, max_length=255)
+    reviewed_by: str | None = Field(default=None, max_length=255)
 
 
 class BenchmarkCaseInput(BaseModel):
@@ -44,20 +44,20 @@ class BenchmarkCaseInput(BaseModel):
     known_valuable: bool
     traditional_awareness_at: datetime | None = None
     note: str | None = Field(default=None, max_length=4000)
-    created_by: str = Field(min_length=1, max_length=255)
+    created_by: str | None = Field(default=None, max_length=255)
 
 
 class BenchmarkMatchInput(BaseModel):
     hypothesis_id: str = Field(min_length=1, max_length=64)
     match_evidence: str = Field(min_length=1, max_length=4000)
-    matched_by: str = Field(min_length=1, max_length=255)
+    matched_by: str | None = Field(default=None, max_length=255)
 
 
 class OutcomeInput(BaseModel):
     stage: str
     traditional_awareness_at: datetime | None = None
     note: str | None = Field(default=None, max_length=4000)
-    recorded_by: str = Field(min_length=1, max_length=255)
+    recorded_by: str | None = Field(default=None, max_length=255)
 
 
 @router.get("/opportunities")
