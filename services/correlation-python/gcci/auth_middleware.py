@@ -27,6 +27,23 @@ def _allowed(actor: Actor, request: Request) -> bool:
     if method == "POST" and path.endswith("/cameras/refresh"):
         return actor.role in {"INVESTIGATOR", "ATTORNEY", "SERVICE"}
 
+    # Feedback and benchmark labels are privileged human judgments.
+    # A service token or read-only auditor must never forge attorney ground truth.
+    if path.startswith("/validation/benchmark-cases"):
+        if method == "GET":
+            return actor.role in {"ATTORNEY", "INVESTIGATOR", "AUDITOR"}
+        return actor.role == "ATTORNEY"
+
+    if path == "/validation/metrics" or path == "/opportunities":
+        return actor.role in {"ATTORNEY", "INVESTIGATOR", "AUDITOR"}
+
+    if path.endswith("/attorney-review") and method == "POST":
+        return actor.role == "ATTORNEY"
+    if path.endswith("/attorney-reviews") and method == "GET":
+        return actor.role in {"ATTORNEY", "INVESTIGATOR", "AUDITOR"}
+    if path.endswith("/outcomes") and method == "POST":
+        return actor.role == "ATTORNEY"
+
     if path == "/metrics":
         return actor.role in {"AUDITOR", "SERVICE"}
 
