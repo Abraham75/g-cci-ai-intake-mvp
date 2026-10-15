@@ -17,6 +17,7 @@ from .models import Camera, CorrelatedIncidentPackage, NormalizedEvent
 from .ops_api import router as ops_router
 from .persistence_service import PersistentCorrelationService
 from .request_context import RequestContextMiddleware
+from .validation_api import router as validation_router
 from .service import CrossSourceCorrelationService
 
 app = FastAPI(
@@ -31,7 +32,8 @@ app = FastAPI(
         "queues material hypothesis revisions for canonical G-CCI scoring, persists "
         "camera inventory and revision-specific camera candidates, ranks evidence-development "
         "work by expected information gain, qualifies truck-case opportunities, and ranks "
-        "lawful evidence sources for claimant resolution, and captures attorney dispositions/outcomes for product calibration. Durable compliance state and an "
+        "lawful evidence sources for claimant resolution, and captures attorney feedback. "
+        "Durable compliance state and an "
         "encrypted contact vault remain independent of case scoring and prevent analytics "
         "from becoming outreach authorization."
     ),
@@ -53,6 +55,7 @@ app.include_router(ops_router)
 app.include_router(camera_router)
 app.include_router(lead_router)
 app.include_router(compliance_router)
+app.include_router(validation_router)
 
 analysis_service = CrossSourceCorrelationService()
 persistence_service = PersistentCorrelationService()
