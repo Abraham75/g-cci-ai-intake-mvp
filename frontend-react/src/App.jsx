@@ -110,7 +110,6 @@ export default function App() {
               {selectedHypothesisId && <ContactComplianceVault hypothesisId={selectedHypothesisId} />}
             </>
           )}
-          {view === "economics" && <DecisionEconomicsDashboard />}
           {view === "status" && <PlatformStatus />}
         </main>
       </div>
