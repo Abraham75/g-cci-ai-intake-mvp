@@ -54,7 +54,25 @@ def _allowed(actor: Actor, request: Request) -> bool:
 
 class GCCIAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if not settings.require_auth or request.url.path in PUBLIC_HEALTH_PATHS:
+        if request.url.path in PUBLIC_HEALTH_PATHS:
+            return await call_next(request)
+
+        # Never allow unauthenticated writes to attorney ground truth, even
+        # when the rest of a development deployment permits anonymous access.
+        protected_validation_write = (
+            request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}
+            and (
+                request.url.path.startswith("/validation/benchmark-cases")
+                or request.url.path.endswith("/attorney-review")
+                or request.url.path.endswith("/outcomes")
+            )
+        )
+        if not settings.require_auth:
+            if protected_validation_write:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Authenticated attorney identity required"},
+                )
             return await call_next(request)
 
         try:
