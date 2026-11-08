@@ -161,7 +161,7 @@ async def record_attorney_review(hypothesis_id: str, body: AttorneyReviewInput, 
                          "reasonCode": body.reason_code,
                          "hypothesisRevision": hypothesis["current_revision"],
                          "scoreRevision": score["revision"] if score else None},
-                produced_by=body.reviewed_by, source_system="GCCI:AttorneyFeedback",
+                produced_by=request.state.actor.name, source_system="GCCI:AttorneyFeedback",
             )
     return {"id": review_id, "ledgerEntryId": entry.id, "recorded": True}
 
@@ -206,7 +206,7 @@ async def record_outcome(hypothesis_id: str, body: OutcomeInput, request: Reques
                              body.traditional_awareness_at.isoformat()
                              if body.traditional_awareness_at else None
                          )},
-                produced_by=body.recorded_by, source_system="GCCI:OutcomeFeedback",
+                produced_by=request.state.actor.name, source_system="GCCI:OutcomeFeedback",
             )
     return {"id": outcome_id, "ledgerEntryId": entry.id, "recorded": True}
 
@@ -272,7 +272,7 @@ async def match_benchmark_case(benchmark_id: str, body: BenchmarkMatchInput, req
                 payload={"benchmarkId": benchmark_id, "matchId": match_id,
                          "externalReference": row["external_reference"],
                          "matchEvidence": body.match_evidence},
-                produced_by=body.matched_by, source_system="GCCI:ValidationCorpus",
+                produced_by=request.state.actor.name, source_system="GCCI:ValidationCorpus",
             )
     return {"matched": True, "ledgerEntryId": entry.id}
 
